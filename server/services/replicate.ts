@@ -354,11 +354,11 @@ setInterval(() => {
   const now = Date.now();
   const maxAge = 24 * 60 * 60 * 1000; // 24 hours
   
-  for (const [id, operation] of operationStore.entries()) {
+  operationStore.forEach((operation, id) => {
     const createdAt = new Date(operation.createdAt).getTime();
     if (now - createdAt > maxAge) {
       operationStore.delete(id);
       console.log(`🧹 Cleaned up old operation: ${id}`);
     }
-  }
+  });
 }, 60 * 60 * 1000); // Run every hour
