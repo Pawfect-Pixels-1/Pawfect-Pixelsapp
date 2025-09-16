@@ -15,10 +15,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Health check endpoint
   app.get("/api/health", (req, res) => {
+    const hasReplicateToken = !!process.env.REPLICATE_API_TOKEN;
     res.json({ 
-      status: "ok", 
+      status: hasReplicateToken ? "ok" : "error", 
       timestamp: new Date().toISOString(),
-      service: "portrait-studio" 
+      service: "portrait-studio",
+      replicate_configured: hasReplicateToken,
+      message: hasReplicateToken ? "All services ready" : "Replicate API token not configured"
     });
   });
 

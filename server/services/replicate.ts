@@ -1,9 +1,16 @@
 import { Request, Response } from "express";
 import Replicate from "replicate";
+import { fileStorage } from "../storage";
+import fetch from 'node-fetch';
 
 // Initialize Replicate client
+if (!process.env.REPLICATE_API_TOKEN) {
+  console.error('❌ REPLICATE_API_TOKEN is required but not set in environment');
+  process.exit(1);
+}
+
 const replicate = new Replicate({
-  auth: process.env.REPLICATE_API_TOKEN || "default_token"
+  auth: process.env.REPLICATE_API_TOKEN
 });
 
 // Store for tracking operation status
@@ -78,26 +85,59 @@ export async function transformImageHandler(req: Request, res: Response) {
     }
 
     if (finalPrediction.status === "succeeded") {
-      const transformedImageUrl = Array.isArray(finalPrediction.output) 
+      const replicateImageUrl = Array.isArray(finalPrediction.output) 
         ? finalPrediction.output[0] 
         : finalPrediction.output;
 
-      // Update operation store
-      operationStore.set(prediction.id, {
-        id: prediction.id,
-        type: 'transform',
-        status: 'completed',
-        result: transformedImageUrl,
-        completedAt: new Date()
-      });
+      try {
+        // Download and store the transformed image
+        console.log(`📥 Downloading transformed image from: ${replicateImageUrl}`);
+        const imageResponse = await fetch(replicateImageUrl);
+        const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+        
+        const storedFile = await fileStorage.saveFile(
+          imageBuffer, 
+          `transformed_${prediction.id}.jpg`,
+          'image/jpeg'
+        );
 
-      console.log(`✅ Image transformation completed: ${transformedImageUrl}`);
+        const localImageUrl = `${req.protocol}://${req.get('host')}${storedFile.url}`;
 
-      return res.json({
-        success: true,
-        transformedImage: transformedImageUrl,
-        operationId: prediction.id
-      });
+        // Update operation store
+        operationStore.set(prediction.id, {
+          id: prediction.id,
+          type: 'transform',
+          status: 'completed',
+          result: localImageUrl,
+          completedAt: new Date()
+        });
+
+        console.log(`✅ Image transformation completed and stored: ${localImageUrl}`);
+
+        return res.json({
+          success: true,
+          transformedImage: localImageUrl,
+          operationId: prediction.id
+        });
+      } catch (downloadError) {
+        console.error('❌ Error downloading/storing image:', downloadError);
+        // Fall back to original URL if storage fails
+        const transformedImageUrl = replicateImageUrl;
+        
+        operationStore.set(prediction.id, {
+          id: prediction.id,
+          type: 'transform',
+          status: 'completed',
+          result: transformedImageUrl,
+          completedAt: new Date()
+        });
+
+        return res.json({
+          success: true,
+          transformedImage: transformedImageUrl,
+          operationId: prediction.id
+        });
+      }
     } else {
       const error = finalPrediction.error || "Transformation failed";
       console.error(`❌ Transformation failed: ${error}`);
@@ -193,26 +233,59 @@ export async function generateVideoHandler(req: Request, res: Response) {
     }
 
     if (finalPrediction.status === "succeeded") {
-      const videoUrl = Array.isArray(finalPrediction.output) 
+      const replicateVideoUrl = Array.isArray(finalPrediction.output) 
         ? finalPrediction.output[0] 
         : finalPrediction.output;
 
-      // Update operation store
-      operationStore.set(prediction.id, {
-        id: prediction.id,
-        type: 'video',
-        status: 'completed',
-        result: videoUrl,
-        completedAt: new Date()
-      });
+      try {
+        // Download and store the generated video
+        console.log(`📥 Downloading generated video from: ${replicateVideoUrl}`);
+        const videoResponse = await fetch(replicateVideoUrl);
+        const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+        
+        const storedFile = await fileStorage.saveFile(
+          videoBuffer, 
+          `video_${prediction.id}.mp4`,
+          'video/mp4'
+        );
 
-      console.log(`✅ Video generation completed: ${videoUrl}`);
+        const localVideoUrl = `${req.protocol}://${req.get('host')}${storedFile.url}`;
 
-      return res.json({
-        success: true,
-        videoUrl: videoUrl,
-        operationId: prediction.id
-      });
+        // Update operation store
+        operationStore.set(prediction.id, {
+          id: prediction.id,
+          type: 'video',
+          status: 'completed',
+          result: localVideoUrl,
+          completedAt: new Date()
+        });
+
+        console.log(`✅ Video generation completed and stored: ${localVideoUrl}`);
+
+        return res.json({
+          success: true,
+          videoUrl: localVideoUrl,
+          operationId: prediction.id
+        });
+      } catch (downloadError) {
+        console.error('❌ Error downloading/storing video:', downloadError);
+        // Fall back to original URL if storage fails
+        const videoUrl = replicateVideoUrl;
+        
+        operationStore.set(prediction.id, {
+          id: prediction.id,
+          type: 'video',
+          status: 'completed',
+          result: videoUrl,
+          completedAt: new Date()
+        });
+
+        return res.json({
+          success: true,
+          videoUrl: videoUrl,
+          operationId: prediction.id
+        });
+      }
     } else {
       const error = finalPrediction.error || "Video generation failed";
       console.error(`❌ Video generation failed: ${error}`);
@@ -262,14 +335,39 @@ export async function getStatusHandler(req: Request, res: Response) {
         const prediction = await replicate.predictions.get(operationId);
         
         if (prediction.status === "succeeded") {
-          const result = Array.isArray(prediction.output) 
+          const replicateUrl = Array.isArray(prediction.output) 
             ? prediction.output[0] 
             : prediction.output;
           
-          operation.status = 'completed';
-          operation.result = result;
-          operation.completedAt = new Date();
-          operationStore.set(operationId, operation);
+          try {
+            // Download and store the result locally
+            console.log(`📥 Downloading ${operation.type} result from: ${replicateUrl}`);
+            const response = await fetch(replicateUrl);
+            const buffer = Buffer.from(await response.arrayBuffer());
+            
+            const fileExtension = operation.type === 'video' ? '.mp4' : '.jpg';
+            const mimeType = operation.type === 'video' ? 'video/mp4' : 'image/jpeg';
+            
+            const storedFile = await fileStorage.saveFile(
+              buffer, 
+              `${operation.type}_${operationId}${fileExtension}`,
+              mimeType
+            );
+
+            const localUrl = `${req.protocol}://${req.get('host')}${storedFile.url}`;
+            
+            operation.status = 'completed';
+            operation.result = localUrl;
+            operation.completedAt = new Date();
+            operationStore.set(operationId, operation);
+          } catch (downloadError) {
+            console.error('❌ Error downloading/storing result in status handler:', downloadError);
+            // Fall back to original URL if storage fails
+            operation.status = 'completed';
+            operation.result = replicateUrl;
+            operation.completedAt = new Date();
+            operationStore.set(operationId, operation);
+          }
         } else if (prediction.status === "failed") {
           operation.status = 'failed';
           operation.error = prediction.error || "Operation failed";
