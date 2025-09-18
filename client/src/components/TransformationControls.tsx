@@ -32,7 +32,7 @@ const PERSONA_ENUM = [
   'Demon',
   'Mage',
   'Ninja',
-  "Na'vi",
+  "Navi",
   'None',
   'Random',
   'Robot',
