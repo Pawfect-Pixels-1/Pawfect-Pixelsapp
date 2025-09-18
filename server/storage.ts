@@ -124,44 +124,51 @@ export class HybridFileStorage implements IFileStorage {
     const filename = `${id}${extension}`;
     const storageKey = `${this.storagePrefix}/${userId || 'anonymous'}/${filename}`;
     
+    let fileUrl: string;
+    let storedFile: StoredFile;
+
     try {
-      // Upload to App Storage
-      if (!storageClient) {
+      // Try to upload to App Storage first
+      if (storageClient) {
+        const stream = Readable.from(buffer);
+        await storageClient.uploadFromStream(storageKey, stream);
+        fileUrl = `/api/files/${storageKey}`;
+        console.log(`💾 Saved file to App Storage: ${originalName} (${(buffer.length / 1024 / 1024).toFixed(2)}MB)`);
+      } else {
         throw new Error('App Storage not configured');
       }
-      
-      const stream = Readable.from(buffer);
-      await storageClient.uploadFromStream(storageKey, stream);
-      
-      const storedFile: StoredFile = {
-        id,
-        filename,
-        originalName,
-        mimeType,
-        size: buffer.length,
-        url: `/api/files/${storageKey}`, // We'll create this endpoint
-        uploadedAt: new Date()
-      };
-      
-      // If userId provided, save file metadata to database
-      if (userId) {
-        await db.insert(userFiles).values({
-          userId,
-          fileName: filename,
-          originalFileName: originalName,
-          fileUrl: storedFile.url,
-          fileType: mimeType,
-          fileSize: buffer.length,
-        });
-      }
-      
-      console.log(`💾 Saved file to App Storage: ${originalName} (${(buffer.length / 1024 / 1024).toFixed(2)}MB)`);
-      
-      return storedFile;
     } catch (error) {
-      console.error(`❌ Failed to upload file to App Storage: ${error}`);
-      throw new Error('Failed to save file to storage');
+      // Fallback to local storage
+      const localPath = path.join(process.cwd(), 'uploads', filename);
+      await fs.mkdir(path.dirname(localPath), { recursive: true });
+      await fs.writeFile(localPath, buffer);
+      fileUrl = `/uploads/${filename}`;
+      console.log(`📁 Saved file locally: ${originalName} (${(buffer.length / 1024 / 1024).toFixed(2)}MB)`);
     }
+
+    storedFile = {
+      id,
+      filename,
+      originalName,
+      mimeType,
+      size: buffer.length,
+      url: fileUrl,
+      uploadedAt: new Date()
+    };
+    
+    // If userId provided, save file metadata to database
+    if (userId) {
+      await db.insert(userFiles).values({
+        userId,
+        fileName: filename,
+        originalFileName: originalName,
+        fileUrl,
+        fileType: mimeType,
+        fileSize: buffer.length,
+      });
+    }
+    
+    return storedFile;
   }
 
   async saveFileFromUrl(url: string, originalName: string, mimeType: string, userId?: number): Promise<StoredFile> {

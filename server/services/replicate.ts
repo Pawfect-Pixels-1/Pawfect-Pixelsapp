@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import Replicate from "replicate";
-import { fileStorage } from "../storage";
+import { storage, fileStorage } from "../storage";
 import fetch from "node-fetch";
 
 if (!process.env.REPLICATE_API_TOKEN) {
@@ -80,6 +80,7 @@ export async function transformImageHandler(req: Request, res: Response) {
       status: "processing",
       createdAt: new Date(),
       input,
+      userId: req.user?.id, // Store user ID for later use
     });
 
     // Poll until done (max ~2 min)
@@ -128,7 +129,8 @@ export async function transformImageHandler(req: Request, res: Response) {
         const stored = await fileStorage.saveFile(
           buf,
           `transformed_${prediction.id}_${i}.${input.output_format === "jpg" ? "jpg" : "png"}`,
-          input.output_format === "jpg" ? "image/jpeg" : "image/png"
+          input.output_format === "jpg" ? "image/jpeg" : "image/png",
+          req.user?.id  // Pass user ID if authenticated
         );
         const local = `${req.protocol}://${req.get("host")}${stored.url}`;
         localUrls.push(local);
@@ -145,6 +147,50 @@ export async function transformImageHandler(req: Request, res: Response) {
       result: localUrls,
       completedAt: new Date(),
     });
+
+    // Save transformation record to database if user is authenticated
+    if (req.user && localUrls.length > 0) {
+      try {
+        // Save original input file to storage first if it's a data URL
+        let originalFileUrl = input.input_image;
+        let originalFileName = `original_${prediction.id}.png`;
+        
+        if (input.input_image.startsWith('data:')) {
+          const base64Data = input.input_image.split(',')[1];
+          const buffer = Buffer.from(base64Data, 'base64');
+          const originalFile = await fileStorage.saveFile(
+            buffer,
+            originalFileName,
+            'image/png',
+            req.user.id
+          );
+          originalFileUrl = `${req.protocol}://${req.get("host")}${originalFile.url}`;
+        }
+        
+        await storage.createTransformation({
+          userId: req.user.id,
+          type: 'image', // Must match schema enum
+          status: 'completed', // Must match schema enum
+          originalFileName,
+          originalFileUrl,
+          transformationOptions: JSON.stringify({
+            style: input.style,
+            persona: input.persona,
+            num_images: input.num_images,
+            aspect_ratio: input.aspect_ratio,
+            output_format: input.output_format,
+            preserve_outfit: input.preserve_outfit,
+            preserve_background: input.preserve_background,
+            safety_tolerance: input.safety_tolerance
+          }),
+          resultFileUrls: localUrls, // Array as expected by schema
+        });
+        console.log(`💾 Transformation saved for user: ${req.user.username}`);
+      } catch (error) {
+        console.error('Error saving transformation to database:', error);
+        // Don't fail the whole operation if database save fails
+      }
+    }
 
     return res.json({
       success: true,
@@ -188,7 +234,7 @@ export async function getStatusHandler(req: Request, res: Response) {
               const isVideo = operation.type === "video";
               const ext = isVideo ? ".mp4" : ".png"; // default if unknown
               const mime = isVideo ? "video/mp4" : "image/png";
-              const file = await fileStorage.saveFile(buf, `${operation.type}_${operationId}_${i}${ext}`, mime);
+              const file = await fileStorage.saveFile(buf, `${operation.type}_${operationId}_${i}${ext}`, mime, operation.userId);
               stored.push(`${req.protocol}://${req.get("host")}${file.url}`);
             } catch {
               stored.push(outs[i]);

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import UploadZone from "./components/UploadZone";
 import PreviewGrid from "./components/PreviewGrid";
 import TransformationControls from "./components/TransformationControls";
+import { UserHeader } from "./components/UserHeader";
 import { useTransformation } from "./lib/stores/useTransformation";
 import { Card } from "./components/ui/card";
 import "@fontsource/inter";
@@ -21,15 +22,8 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-[#fffdf5] p-4 font-sans">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8 text-center">
-          <h1 className="text-4xl font-bold text-black mb-2" style={{ fontFamily: 'Wedges, Inter, sans-serif' }}>
-            Portrait Studio
-          </h1>
-          <p className="text-gray-600 text-lg">
-            Transform portraits and generate videos with AI
-          </p>
-        </div>
+        {/* Header with Auth */}
+        <UserHeader />
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
