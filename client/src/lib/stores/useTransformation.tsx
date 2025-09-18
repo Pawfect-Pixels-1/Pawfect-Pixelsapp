@@ -7,6 +7,7 @@ interface TransformationState {
   // Image data
   uploadedImage: string | null;
   transformedImage: string | null;
+  transformedImages: string[];
   generatedVideo: string | null;
   
   // Processing state
@@ -17,6 +18,7 @@ interface TransformationState {
   // Actions
   setUploadedImage: (image: string | null) => void;
   setTransformedImage: (image: string | null) => void;
+  setTransformedImages: (images: string[]) => void;
   setGeneratedVideo: (video: string | null) => void;
   setIsProcessing: (processing: boolean) => void;
   setCurrentOperation: (operation: OperationType) => void;
@@ -30,6 +32,7 @@ export const useTransformation = create<TransformationState>()(
     // Initial state
     uploadedImage: null,
     transformedImage: null,
+    transformedImages: [],
     generatedVideo: null,
     isProcessing: false,
     currentOperation: null,
@@ -42,6 +45,13 @@ export const useTransformation = create<TransformationState>()(
     
     setTransformedImage: (image) => {
       set({ transformedImage: image });
+    },
+    
+    setTransformedImages: (images) => {
+      set({ 
+        transformedImages: images,
+        transformedImage: images.length > 0 ? images[0] : null
+      });
     },
     
     setGeneratedVideo: (video) => {
@@ -66,6 +76,7 @@ export const useTransformation = create<TransformationState>()(
     clearResults: () => {
       set({
         transformedImage: null,
+        transformedImages: [],
         generatedVideo: null,
         isProcessing: false,
         currentOperation: null,
@@ -77,6 +88,7 @@ export const useTransformation = create<TransformationState>()(
       set({
         uploadedImage: null,
         transformedImage: null,
+        transformedImages: [],
         generatedVideo: null,
         isProcessing: false,
         currentOperation: null,

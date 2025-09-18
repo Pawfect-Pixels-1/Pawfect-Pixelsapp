@@ -2,8 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { Wand2, Video, Sparkles, Palette } from 'lucide-react';
 
 // Store + API
-import { useTransformation } from './useTransformation';
-import { transformImage, generateVideo } from '../../components/hooks/lib/stores/replicate';
+import { useTransformation } from '../lib/stores/useTransformation';
+import { transformImage, generateVideo } from '../lib/replicate';
 
 // --- Exact enums from the model schema ---
 // See: https://replicate.com/flux-kontext-apps/face-to-many-kontext (API/Schema)
