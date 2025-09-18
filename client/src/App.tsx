@@ -4,6 +4,9 @@ import UploadZone from "./components/UploadZone";
 import PreviewGrid from "./components/PreviewGrid";
 import TransformationControls from "./components/TransformationControls";
 import { UserHeader } from "./components/UserHeader";
+import { WelcomePage } from "./components/WelcomePage";
+import { UserDashboard } from "./components/UserDashboard";
+import { useAuth } from "./lib/stores/useAuth";
 import { useTransformation } from "./lib/stores/useTransformation";
 import { Card } from "./components/ui/card";
 import "@fontsource/inter";
@@ -11,6 +14,8 @@ import "@fontsource/inter";
 const queryClient = new QueryClient();
 
 function AppContent() {
+  const { user, isLoading } = useAuth();
+  const [activeView, setActiveView] = useState<'transform' | 'dashboard'>('transform');
   const { 
     uploadedImage, 
     transformedImage, 
@@ -19,38 +24,86 @@ function AppContent() {
     currentOperation 
   } = useTransformation();
 
+  // Show loading state while checking authentication
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#fffdf5] flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin w-12 h-12 border-4 border-[#10B981] border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-lg text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show welcome page for unauthenticated users
+  if (!user) {
+    return <WelcomePage />;
+  }
+
+  // Show authenticated user interface
   return (
     <div className="min-h-screen bg-[#fffdf5] p-4 font-sans">
       <div className="max-w-7xl mx-auto">
         {/* Header with Auth */}
         <UserHeader />
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Upload Zone */}
-          <div className="lg:col-span-1">
-            <Card className="h-full shadow-[8px_8px_0px_0px_#c6c2e6] border-2 border-black">
-              <UploadZone />
-            </Card>
-          </div>
-
-          {/* Transformation Controls */}
-          <div className="lg:col-span-1">
-            <Card className="h-full shadow-[8px_8px_0px_0px_#6c8b3a] border-2 border-black">
-              <TransformationControls />
-            </Card>
-          </div>
-
-          {/* Preview Grid */}
-          <div className="lg:col-span-1">
-            <Card className="h-full shadow-[8px_8px_0px_0px_#F59E0B] border-2 border-black">
-              <PreviewGrid />
-            </Card>
+        {/* Navigation Tabs */}
+        <div className="mb-6">
+          <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg border-2 border-black inline-flex">
+            <button
+              onClick={() => setActiveView('transform')}
+              className={`py-2 px-6 rounded-md font-semibold transition-colors ${
+                activeView === 'transform'
+                  ? 'bg-white text-black shadow-[2px_2px_0px_0px_#000000] border border-black'
+                  : 'text-gray-600 hover:text-black'
+              }`}
+            >
+              Transform
+            </button>
+            <button
+              onClick={() => setActiveView('dashboard')}
+              className={`py-2 px-6 rounded-md font-semibold transition-colors ${
+                activeView === 'dashboard'
+                  ? 'bg-white text-black shadow-[2px_2px_0px_0px_#000000] border border-black'
+                  : 'text-gray-600 hover:text-black'
+              }`}
+            >
+              Dashboard
+            </button>
           </div>
         </div>
 
-        {/* Processing Status */}
-        {isProcessing && (
+        {activeView === 'dashboard' ? (
+          <UserDashboard />
+        ) : (
+          <>
+            {/* Main Content Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Upload Zone */}
+              <div className="lg:col-span-1">
+                <Card className="h-full shadow-[8px_8px_0px_0px_#c6c2e6] border-2 border-black">
+                  <UploadZone />
+                </Card>
+              </div>
+
+              {/* Transformation Controls */}
+              <div className="lg:col-span-1">
+                <Card className="h-full shadow-[8px_8px_0px_0px_#6c8b3a] border-2 border-black">
+                  <TransformationControls />
+                </Card>
+              </div>
+
+              {/* Preview Grid */}
+              <div className="lg:col-span-1">
+                <Card className="h-full shadow-[8px_8px_0px_0px_#F59E0B] border-2 border-black">
+                  <PreviewGrid />
+                </Card>
+              </div>
+            </div>
+
+            {/* Processing Status */}
+            {isProcessing && (
           <div className="mt-6">
             <Card className="shadow-[8px_8px_0px_0px_#10B981] border-2 border-black bg-white">
               <div className="p-6 text-center">
@@ -145,6 +198,8 @@ function AppContent() {
               </div>
             </Card>
           </div>
+        )}
+          </>
         )}
       </div>
     </div>

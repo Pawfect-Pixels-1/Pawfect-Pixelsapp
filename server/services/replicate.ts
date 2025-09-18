@@ -80,7 +80,7 @@ export async function transformImageHandler(req: Request, res: Response) {
       status: "processing",
       createdAt: new Date(),
       input,
-      userId: req.user?.id, // Store user ID for later use
+      userId: req.user!.id, // Store user ID for later use (required auth)
     });
 
     // Poll until done (max ~2 min)
@@ -130,7 +130,7 @@ export async function transformImageHandler(req: Request, res: Response) {
           buf,
           `transformed_${prediction.id}_${i}.${input.output_format === "jpg" ? "jpg" : "png"}`,
           input.output_format === "jpg" ? "image/jpeg" : "image/png",
-          req.user?.id  // Pass user ID if authenticated
+          req.user.id  // Pass user ID (required auth)
         );
         const local = `${req.protocol}://${req.get("host")}${stored.url}`;
         localUrls.push(local);
@@ -148,8 +148,8 @@ export async function transformImageHandler(req: Request, res: Response) {
       completedAt: new Date(),
     });
 
-    // Save transformation record to database if user is authenticated
-    if (req.user && localUrls.length > 0) {
+    // Save transformation record to database (user is now required)
+    if (localUrls.length > 0) {
       try {
         // Save original input file to storage first if it's a data URL
         let originalFileUrl = input.input_image;
@@ -162,13 +162,13 @@ export async function transformImageHandler(req: Request, res: Response) {
             buffer,
             originalFileName,
             'image/png',
-            req.user.id
+            req.user!.id
           );
           originalFileUrl = `${req.protocol}://${req.get("host")}${originalFile.url}`;
         }
         
         await storage.createTransformation({
-          userId: req.user.id,
+          userId: req.user!.id,
           type: 'image', // Must match schema enum
           status: 'completed', // Must match schema enum
           originalFileName,
@@ -185,7 +185,7 @@ export async function transformImageHandler(req: Request, res: Response) {
           }),
           resultFileUrls: localUrls, // Array as expected by schema
         });
-        console.log(`💾 Transformation saved for user: ${req.user.username}`);
+        console.log(`💾 Transformation saved for user: ${req.user!.username}`);
       } catch (error) {
         console.error('Error saving transformation to database:', error);
         // Don't fail the whole operation if database save fails
