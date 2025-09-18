@@ -28,10 +28,10 @@ export function UserHeader() {
       <div className="flex items-center justify-between mb-8">
         {/* Logo and Title */}
         <div className="text-center flex-1">
-          <h1 className="text-4xl font-bold text-black mb-2" style={{ fontFamily: 'Wedges, Inter, sans-serif' }}>
+          <h1 className="text-4xl font-black text-black mb-2" style={{ fontFamily: 'poppins, poppins' }}>
             Portrait Studio
           </h1>
-          <p className="text-gray-600 text-lg">
+          <p className="font-regular text-Black-600 text-lg">
             Transform portraits and generate videos with AI
           </p>
         </div>
