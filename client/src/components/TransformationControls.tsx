@@ -103,7 +103,7 @@ const TransformationControls: React.FC = () => {
           num_images: 1,
           aspect_ratio: 'match_input_image',
           output_format: 'png',
-          preserve_outfit: false,
+          preserve_outfit: true,
           preserve_background: false,
           safety_tolerance: 2,
         }
