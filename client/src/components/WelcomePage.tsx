@@ -21,7 +21,7 @@ const sampleTransformations = [
 ];
 
 export function WelcomePage() {
-  const [showAuth, setShowAuth] = useState(false);
+  const [showAuth, setShowAuth] = useState(true);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
 
   const handleGetStarted = (mode: 'login' | 'register') => {
@@ -37,7 +37,7 @@ export function WelcomePage() {
           <div className="mb-8">
             <div className="inline-block bg-gradient-to-r from-[#FF6B6B] to-[#4ECDC4] p-1 rounded-2xl">
               <div className="bg-[#fffdf5] px-6 py-3 rounded-xl">
-                <h1 className="text-5xl md:text-7xl font-black text-black mb-4" style={{ fontFamily: 'Wedges, Inter, sans-serif' }}>
+                <h1 className="text-5xl md:text-7xl font-black text-black mb-4" style={{ fontFamily: 'Poppins, Inter, sans-serif' }}>
                   Portrait Studio
                 </h1>
               </div>
@@ -99,7 +99,7 @@ export function WelcomePage() {
 
         {/* Sample Transformations */}
         <div className="mb-12">
-          <h2 className="text-4xl font-bold text-black text-center mb-8" style={{ fontFamily: 'Wedges, Inter, sans-serif' }}>
+          <h2 className="text-4xl font-bold text-black text-center mb-8" style={{ fontFamily: 'Poppins, Inter, sans-serif' }}>
             See What's Possible
           </h2>
           
@@ -141,7 +141,7 @@ export function WelcomePage() {
         {/* CTA Section */}
         <Card className="shadow-[8px_8px_0px_0px_#10B981] border-4 border-black bg-gradient-to-r from-[#10B981] to-[#059669]">
           <div className="p-12 text-center text-white">
-            <h2 className="text-4xl font-bold mb-4" style={{ fontFamily: 'Wedges, Inter, sans-serif' }}>
+            <h2 className="text-4xl font-bold mb-4" style={{ fontFamily: 'Poppins, Inter, sans-serif' }}>
               Ready to Transform Your Photos?
             </h2>
             <p className="text-xl mb-8 opacity-90">
