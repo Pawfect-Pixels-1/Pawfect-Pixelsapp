@@ -1,9 +1,30 @@
 import express, { type Request, Response, NextFunction } from "express";
+import session from "express-session";
+import ConnectPgSimple from "connect-pg-simple";
 import path from "path";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
+
+// Session configuration
+const PgSession = ConnectPgSimple(session);
+app.use(session({
+  store: new PgSession({
+    conString: process.env.DATABASE_URL,
+    tableName: 'user_sessions',
+    createTableIfMissing: true,
+  }),
+  secret: process.env.SESSION_SECRET || 'dev-secret-change-in-production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+  },
+}));
+
 // Increase payload limits for base64 image uploads (50MB limit)
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
