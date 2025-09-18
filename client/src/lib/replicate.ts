@@ -8,7 +8,7 @@ export type StyleEnum =
   | "Simpsons" | "Sketch" | "South Park" | "Toy" | "Watercolor";
 
 export type PersonaEnum =
-  | "Angel" | "Astronaut" | "Demon" | "Mage" | "Ninja" | "Na'vi" | "None"
+  | "Angel" | "Astronaut" | "Demon" | "Mage" | "Ninja" | "Navi" | "Random"
   | "Random" | "Robot" | "Samurai" | "Vampire" | "Werewolf" | "Zombie";
 
 export type AspectRatio =
