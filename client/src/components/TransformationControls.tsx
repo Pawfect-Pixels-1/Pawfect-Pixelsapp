@@ -17,10 +17,23 @@ const TransformationControls: React.FC = () => {
   const [selectedVideoStyle, setSelectedVideoStyle] = useState<string>('');
 
   const transformOptions = [
-    { id: 'portrait', label: 'Professional Portrait', icon: Palette },
-    { id: 'artistic', label: 'Artistic Style', icon: Sparkles },
-    { id: 'anime', label: 'Anime Style', icon: Wand2 },
-    { id: 'vintage', label: 'Vintage Look', icon: Palette },
+    { id: 'Lego', label: 'Lego Portrait', icon: Palette },
+    { id: '90s Cartoon', label: 'Cartoon Character from the 90s', icon: Sparkles },
+    { id: 'Clay', label: 'Clay Character', icon: Wand2 },
+    { id: 'Gothic', label: 'Gophic Character', icon: Palette },
+    { id: 'Pixel Art', label: 'Pixel Character', icon: Palette },
+    { id: 'Toy Doll', label: 'Toy Doll Character', icon: Sparkles },
+    { id: 'Watercolor Cartoon', label: 'Cartoon Character in Watercolor', icon: Wand2 },
+    { id: 'Random', label: 'Random Style', icon: Palette },
+    { id: 'Angel', label: 'Angel Character Portrait', icon: Palette },
+    { id: 'Astronaut', label: 'Astronaut in Space Character', icon: Sparkles },
+    { id: 'Demon', label: 'Demon Character', icon: Wand2 },
+    { id: 'Ninja', label: 'Ninja Character', icon: Palette },
+    { id: 'Na vi Art', label: 'Na vi Character', icon: Palette },
+    { id: 'Robot', label: 'Robot Style Character', icon: Sparkles },
+    { id: 'Vampire', label: 'Vampire', icon: Wand2 }, 
+    { id: 'Zombie', label: 'Zombie Character', icon: Wand2 },
+    { id: 'Werewolf', label: 'Warewolf Character', icon: Palette },
   ];
 
   const videoOptions = [
