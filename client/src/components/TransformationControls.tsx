@@ -20,7 +20,7 @@ const TransformationControls: React.FC = () => {
     { id: 'Lego', label: 'Lego Portrait', icon: Palette },
     { id: '90s Cartoon', label: 'Cartoon Character from the 90s', icon: Sparkles },
     { id: 'Clay', label: 'Clay Character', icon: Wand2 },
-    { id: 'Gothic', label: 'Gophic Character', icon: Palette },
+    { id: 'Gothic', label: 'Gothic Character', icon: Palette },
     { id: 'Pixel Art', label: 'Pixel Character', icon: Palette },
     { id: 'Toy Doll', label: 'Toy Doll Character', icon: Sparkles },
     { id: 'Watercolor Cartoon', label: 'Cartoon Character in Watercolor', icon: Wand2 },
@@ -29,11 +29,11 @@ const TransformationControls: React.FC = () => {
     { id: 'Astronaut', label: 'Astronaut in Space Character', icon: Sparkles },
     { id: 'Demon', label: 'Demon Character', icon: Wand2 },
     { id: 'Ninja', label: 'Ninja Character', icon: Palette },
-    { id: 'Na vi Art', label: 'Na vi Character', icon: Palette },
+    { id: 'Navi Art', label: 'Navi Character', icon: Palette },
     { id: 'Robot', label: 'Robot Style Character', icon: Sparkles },
     { id: 'Vampire', label: 'Vampire', icon: Wand2 }, 
     { id: 'Zombie', label: 'Zombie Character', icon: Wand2 },
-    { id: 'Werewolf', label: 'Warewolf Character', icon: Palette },
+    { id: 'Werewolf', label: 'Werewolf Character', icon: Palette },
   ];
 
   const videoOptions = [
@@ -50,7 +50,7 @@ const TransformationControls: React.FC = () => {
       setCurrentOperation('transform');
       
       const result = await transformImage(uploadedImage, selectedTransform);
-      setTransformedImage(result);
+      setTransformedImage(result[0]);
     } catch (error) {
       console.error('Transformation failed:', error);
       alert('Transformation failed. Please try again.');
