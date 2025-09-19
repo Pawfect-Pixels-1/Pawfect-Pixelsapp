@@ -54,6 +54,7 @@ const corsOptions = {
     ].filter(Boolean); // Remove undefined values
     
     const isAllowed = allowedOrigins.some(allowedOrigin => {
+      if (!allowedOrigin) return false;
       if (typeof allowedOrigin === 'string') {
         return origin === allowedOrigin;
       }
@@ -76,26 +77,36 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Rate limiting
+// Rate limiting - More permissive for development
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Much higher limit in development
   message: {
     error: 'Too many requests from this IP, please try again later.',
   },
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  // Skip rate limiting for certain IPs if needed
+  // Skip rate limiting for certain paths in development
   skip: (req) => {
-    // Skip rate limiting for health checks or trusted IPs
+    if (process.env.NODE_ENV === 'development') {
+      // In development, skip rate limiting for static assets and common paths
+      return req.path === '/api/health' || 
+             req.path.startsWith('/src/') ||
+             req.path.startsWith('/node_modules/') ||
+             req.path.includes('vite') ||
+             req.path.includes('.js') ||
+             req.path.includes('.css') ||
+             req.path.includes('.ts') ||
+             req.path.includes('.tsx');
+    }
     return req.path === '/api/health';
   },
 });
 
-// Strict rate limiting for authentication endpoints
+// Strict rate limiting for authentication endpoints  
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 login attempts per windowMs
+  max: process.env.NODE_ENV === 'production' ? 5 : 50, // More permissive in development
   message: {
     error: 'Too many authentication attempts, please try again later.',
   },
