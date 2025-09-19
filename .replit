@@ -14,10 +14,6 @@ run = ["npm", "run", "start"]
 localPort = 5000
 externalPort = 80
 
-[[ports]]
-localPort = 45085
-externalPort = 3000
-
 [workflows]
 runButton = "Project"
 
@@ -49,4 +45,4 @@ waitForPort = 5000
 id = "module:nodejs-20/formatter:prettier"
 
 [objectStorage]
-defaultBucketID = "replit-objstore-d7505413-3e71-4e40-8c89-07df310f61b7"
+defaultBucketID = "replit-objstore-90e6dc11-45cb-4a03-8e4e-057f7b153442"

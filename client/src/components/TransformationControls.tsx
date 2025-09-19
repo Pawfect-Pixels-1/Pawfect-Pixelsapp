@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { Wand2, Video, Sparkles, Palette } from 'lucide-react';
+import { Wand2, Video, Sparkles, Palette, Zap, Clock } from 'lucide-react';
 
 // Store + API
 import { useTransformation } from '../lib/stores/useTransformation';
 import { transformImage, generateVideo } from '../lib/replicate';
+import { RealtimeTransformModal } from './RealtimeTransformModal';
 
 // --- Exact enums from the model schema ---
 // See: https://replicate.com/flux-kontext-apps/face-to-many-kontext (API/Schema)
@@ -74,6 +75,10 @@ const TransformationControls: React.FC = () => {
 
   // Video style selection (unchanged)
   const [selectedVideoStyle, setSelectedVideoStyle] = useState<string>('');
+  
+  // Real-time preview state
+  const [showRealtimeModal, setShowRealtimeModal] = useState(false);
+  const [realtimeFormData, setRealtimeFormData] = useState<FormData | null>(null);
 
   const styleOptions = useMemo(
     () => STYLE_ENUM.map((s) => ({ id: s, label: s, icon: iconFor(s) })),
@@ -117,6 +122,44 @@ const TransformationControls: React.FC = () => {
       setIsProcessing(false);
       setCurrentOperation(null);
     }
+  };
+
+  const handleRealtimeTransform = async () => {
+    if (!uploadedImage || isProcessing) return;
+
+    try {
+      // Create FormData for real-time transformation
+      const formData = new FormData();
+      
+      // Convert data URL to blob
+      const response = await fetch(uploadedImage);
+      const blob = await response.blob();
+      formData.append('image', blob, 'image.png');
+      
+      // Add transformation options
+      formData.append('options', JSON.stringify({
+        style: selectedStyle,
+        persona: selectedPersona,
+        num_images: 1,
+        aspect_ratio: 'match_input_image',
+        output_format: 'png',
+        preserve_outfit: true,
+        preserve_background: false,
+        safety_tolerance: 2,
+      }));
+
+      setRealtimeFormData(formData);
+      setShowRealtimeModal(true);
+    } catch (error) {
+      console.error('Failed to prepare real-time transformation:', error);
+      alert('Failed to start real-time transformation. Please try again.');
+    }
+  };
+
+  const handleRealtimeSuccess = (results: string[]) => {
+    setTransformedImages(results);
+    setShowRealtimeModal(false);
+    setRealtimeFormData(null);
   };
 
   const handleGenerateVideo = async () => {
@@ -217,16 +260,32 @@ const TransformationControls: React.FC = () => {
               </div>
             </div>
 
-            <button
-              onClick={handleTransform}
-              disabled={isProcessing}
-              className="w-full bg-[#c6c2e6] text-black py-3 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-[4px_4px_0px_0px_#000000] disabled:hover:translate-x-0 disabled:hover:translate-y-0"
-            >
-              <div className="flex items-center justify-center">
-                <Wand2 className="w-4 h-4 mr-2" />
-                Transform Image
-              </div>
-            </button>
+            {/* Transform Buttons */}
+            <div className="space-y-3">
+              {/* Real-time Transform Button */}
+              <button
+                onClick={handleRealtimeTransform}
+                disabled={isProcessing}
+                className="w-full bg-gradient-to-r from-purple-500 to-blue-500 text-white py-3 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-[4px_4px_0px_0px_#000000] disabled:hover:translate-x-0 disabled:hover:translate-y-0"
+              >
+                <div className="flex items-center justify-center">
+                  <Zap className="w-4 h-4 mr-2" />
+                  Real-time Preview
+                </div>
+              </button>
+
+              {/* Regular Transform Button */}
+              <button
+                onClick={handleTransform}
+                disabled={isProcessing}
+                className="w-full bg-[#c6c2e6] text-black py-3 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-[4px_4px_0px_0px_#000000] disabled:hover:translate-x-0 disabled:hover:translate-y-0"
+              >
+                <div className="flex items-center justify-center">
+                  <Clock className="w-4 h-4 mr-2" />
+                  Regular Transform
+                </div>
+              </button>
+            </div>
           </div>
 
           {/* Video Generation Section (unchanged) */}
@@ -274,6 +333,17 @@ const TransformationControls: React.FC = () => {
           </div>
         </div>
       )}
+      
+      {/* Real-time Transform Modal */}
+      <RealtimeTransformModal
+        isOpen={showRealtimeModal}
+        onClose={() => {
+          setShowRealtimeModal(false);
+          setRealtimeFormData(null);
+        }}
+        formData={realtimeFormData}
+        onSuccess={handleRealtimeSuccess}
+      />
     </div>
   );
 };
