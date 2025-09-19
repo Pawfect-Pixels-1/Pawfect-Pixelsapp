@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRealtimeTransform, TransformationProgress } from '../hooks/useRealtimeTransform';
 import { RealtimePreview } from './RealtimePreview';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { AlertCircle, Wifi, WifiOff, X } from 'lucide-react';
@@ -119,6 +119,9 @@ export function RealtimeTransformModal({
               <X className="h-4 w-4" />
             </Button>
           </div>
+          <DialogDescription>
+            Watch your portrait transformation happen in real-time with live preview updates and progress tracking.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
