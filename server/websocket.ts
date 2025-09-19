@@ -45,19 +45,36 @@ class RealtimeService {
       setHeader: () => {},
       getHeader: () => {},
       writeHead: () => {},
-      end: () => {}
+      end: () => {},
+      locals: {}
     };
 
+    console.log('🔍 WebSocket upgrade request headers:', {
+      cookie: request.headers.cookie,
+      origin: request.headers.origin,
+      userAgent: request.headers['user-agent']?.substring(0, 50)
+    });
+
     // Parse session from the request
-    sessionParser(request, mockResponse, () => {
+    sessionParser(request, mockResponse, (err: any) => {
+      if (err) {
+        console.log('❌ Session parsing error:', err);
+        ws.close(1008, 'Session parsing failed');
+        return;
+      }
+
       const session = (request as any).session;
       
+      console.log('🔍 Session parsing result:', {
+        hasSession: !!session,
+        sessionId: session?.id,
+        hasUser: !!session?.user,
+        userId: session?.user?.id,
+        username: session?.user?.username
+      });
+      
       if (!session?.user) {
-        console.log('❌ WebSocket connection rejected: not authenticated', { 
-          hasSession: !!session, 
-          sessionKeys: session ? Object.keys(session) : 'none',
-          cookies: request.headers.cookie || 'none'
-        });
+        console.log('❌ WebSocket connection rejected: not authenticated');
         ws.close(1008, 'Authentication required');
         return;
       }
