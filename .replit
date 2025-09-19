@@ -47,3 +47,6 @@ waitForPort = 5000
 
 [rules.formatter.fileExtensions.".ts"]
 id = "module:nodejs-20/formatter:prettier"
+
+[objectStorage]
+defaultBucketID = "replit-objstore-d7505413-3e71-4e40-8c89-07df310f61b7"

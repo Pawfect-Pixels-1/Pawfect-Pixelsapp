@@ -1,19 +1,30 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { transformImageHandler, generateVideoHandler, getStatusHandler } from "./services/replicate";
+import { realtimeTransformImageHandler, setRealtimeService } from "./services/realtime-transform";
 import { uploadMiddleware } from "./middleware/upload";
 import { registerHandler, loginHandler, logoutHandler, getCurrentUserHandler, requireAuth, optionalAuth } from "./auth";
 import { storage, fileStorage } from "./storage";
+import RealtimeService from "./websocket";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Create HTTP server
+  const httpServer = createServer(app);
+  
+  // Initialize real-time WebSocket service
+  const sessionParser = app.get('sessionParser');
+  const realtimeService = new RealtimeService(httpServer, sessionParser);
+  setRealtimeService(realtimeService);
+  
   // Authentication routes
   app.post("/api/auth/register", registerHandler);
   app.post("/api/auth/login", loginHandler);
   app.post("/api/auth/logout", logoutHandler);
   app.get("/api/auth/me", getCurrentUserHandler);
   
-  // Image transformation endpoint (requires authentication)
+  // Image transformation endpoints (requires authentication)
   app.post("/api/transform", requireAuth, uploadMiddleware, transformImageHandler);
+  app.post("/api/transform-realtime", requireAuth, uploadMiddleware, realtimeTransformImageHandler);
   
   // Video generation endpoint (requires authentication)
   app.post("/api/generate-video", requireAuth, uploadMiddleware, generateVideoHandler);
@@ -54,6 +65,5 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  const httpServer = createServer(app);
   return httpServer;
 }

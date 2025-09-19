@@ -122,7 +122,7 @@ app.use('/api/auth', authLimiter);
 
 // Session configuration
 const PgSession = ConnectPgSimple(session);
-app.use(session({
+const sessionParser = session({
   store: new PgSession({
     conString: process.env.DATABASE_URL,
     tableName: 'user_sessions',
@@ -138,7 +138,11 @@ app.use(session({
     sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', // CSRF protection
     domain: process.env.NODE_ENV === 'production' ? process.env.COOKIE_DOMAIN : undefined,
   },
-}));
+});
+
+app.use(sessionParser);
+// Store the session parser for WebSocket use
+app.set('sessionParser', sessionParser);
 
 // Increase payload limits for base64 image uploads (50MB limit)
 app.use(express.json({ limit: '50mb' }));
