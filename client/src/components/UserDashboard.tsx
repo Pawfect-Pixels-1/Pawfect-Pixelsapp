@@ -222,19 +222,30 @@ export function UserDashboard() {
                   </div>
 
                   {/* Transformation Options */}
-                  {transformation.transformationOptions && (
-                    <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                      <p className="text-sm font-medium text-black mb-2">Settings Used:</p>
-                      <div className="text-xs text-gray-600 space-y-1">
-                        {JSON.parse(transformation.transformationOptions).style && (
-                          <p><strong>Style:</strong> {JSON.parse(transformation.transformationOptions).style}</p>
-                        )}
-                        {JSON.parse(transformation.transformationOptions).persona && (
-                          <p><strong>Persona:</strong> {JSON.parse(transformation.transformationOptions).persona}</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                  {transformation.transformationOptions && (() => {
+                    try {
+                      const options = typeof transformation.transformationOptions === 'string' 
+                        ? JSON.parse(transformation.transformationOptions)
+                        : transformation.transformationOptions;
+                      
+                      return (
+                        <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                          <p className="text-sm font-medium text-black mb-2">Settings Used:</p>
+                          <div className="text-xs text-gray-600 space-y-1">
+                            {options.style && (
+                              <p><strong>Style:</strong> {options.style}</p>
+                            )}
+                            {options.persona && (
+                              <p><strong>Persona:</strong> {options.persona}</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    } catch (error) {
+                      console.error('Error parsing transformation options:', error);
+                      return null;
+                    }
+                  })()}
                 </div>
               </Card>
             ))

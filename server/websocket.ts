@@ -65,65 +65,82 @@ class RealtimeService {
 
       const session = (request as any).session;
       
-      console.log('🔍 Session parsing result:', {
-        hasSession: !!session,
-        sessionId: session?.id,
-        hasUser: !!session?.user,
-        userId: session?.user?.id,
-        username: session?.user?.username
-      });
-      
-      if (!session?.user) {
-        console.log('❌ WebSocket connection rejected: not authenticated');
-        ws.close(1008, 'Authentication required');
-        return;
+      // Reload session from store to get latest data
+      if (session?.id) {
+        session.reload((reloadErr: any) => {
+          if (reloadErr) {
+            console.log('❌ Session reload error:', reloadErr);
+            ws.close(1008, 'Session reload failed');
+            return;
+          }
+          
+          this.authenticateWebSocket(ws, request, session);
+        });
+      } else {
+        this.authenticateWebSocket(ws, request, session);
       }
+    });
+  }
 
-      // Store user info in WebSocket connection
-      ws.userId = session.user.id;
-      ws.username = session.user.username;
-      ws.sessionId = session.id;
+  private authenticateWebSocket(ws: AuthenticatedWebSocket, request: IncomingMessage, session: any) {
+    console.log('🔍 Session parsing result:', {
+      hasSession: !!session,
+      sessionId: session?.id,
+      hasUser: !!session?.user,
+      userId: session?.user?.id,
+      username: session?.user?.username
+    });
+    
+    if (!session?.user) {
+      console.log('❌ WebSocket connection rejected: not authenticated');
+      ws.close(1008, 'Authentication required');
+      return;
+    }
 
-      console.log(`🔌 WebSocket connected: ${ws.username} (${ws.userId})`);
+    // Store user info in WebSocket connection
+    ws.userId = session.user.id;
+    ws.username = session.user.username;
+    ws.sessionId = session.id;
 
-      // Add to clients map
-      if (ws.userId) {
-        const userClients = this.clients.get(ws.userId.toString()) || new Set();
-        userClients.add(ws);
-        this.clients.set(ws.userId.toString(), userClients);
+    console.log(`🔌 WebSocket connected: ${ws.username} (${ws.userId})`);
+
+    // Add to clients map
+    if (ws.userId) {
+      const userClients = this.clients.get(ws.userId.toString()) || new Set();
+      userClients.add(ws);
+      this.clients.set(ws.userId.toString(), userClients);
+    }
+
+    // Send welcome message
+    this.sendToClient(ws, {
+      type: 'status',
+      operationId: 'connection',
+      data: { 
+        message: 'Connected to real-time preview service',
+        userId: ws.userId,
+        username: ws.username
+      },
+      timestamp: Date.now()
+    });
+
+    // Handle messages from client
+    ws.on('message', (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        this.handleMessage(ws, message);
+      } catch (error) {
+        console.error('❌ Invalid WebSocket message:', error);
       }
+    });
 
-      // Send welcome message
-      this.sendToClient(ws, {
-        type: 'status',
-        operationId: 'connection',
-        data: { 
-          message: 'Connected to real-time preview service',
-          userId: ws.userId,
-          username: ws.username
-        },
-        timestamp: Date.now()
-      });
+    // Handle client disconnect
+    ws.on('close', () => {
+      this.handleDisconnect(ws);
+    });
 
-      // Handle messages from client
-      ws.on('message', (data) => {
-        try {
-          const message = JSON.parse(data.toString());
-          this.handleMessage(ws, message);
-        } catch (error) {
-          console.error('❌ Invalid WebSocket message:', error);
-        }
-      });
-
-      // Handle client disconnect
-      ws.on('close', () => {
-        this.handleDisconnect(ws);
-      });
-
-      ws.on('error', (error) => {
-        console.error(`❌ WebSocket error for user ${ws.username}:`, error);
-        this.handleDisconnect(ws);
-      });
+    ws.on('error', (error) => {
+      console.error(`❌ WebSocket error for user ${ws.username}:`, error);
+      this.handleDisconnect(ws);
     });
   }
 
