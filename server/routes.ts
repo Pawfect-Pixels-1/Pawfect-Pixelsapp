@@ -12,11 +12,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/logout", logoutHandler);
   app.get("/api/auth/me", getCurrentUserHandler);
   
-  // Image transformation endpoint (with optional auth for user history)
-  app.post("/api/transform", optionalAuth, uploadMiddleware, transformImageHandler);
+  // Image transformation endpoint (requires authentication)
+  app.post("/api/transform", requireAuth, uploadMiddleware, transformImageHandler);
   
-  // Video generation endpoint (with optional auth for user history)
-  app.post("/api/generate-video", optionalAuth, uploadMiddleware, generateVideoHandler);
+  // Video generation endpoint (requires authentication)
+  app.post("/api/generate-video", requireAuth, uploadMiddleware, generateVideoHandler);
   
   // Status polling endpoint for long-running operations
   app.get("/api/status/:operationId", getStatusHandler);

@@ -4,13 +4,17 @@ import UploadZone from "./components/UploadZone";
 import PreviewGrid from "./components/PreviewGrid";
 import TransformationControls from "./components/TransformationControls";
 import { UserHeader } from "./components/UserHeader";
+import { UserDashboard } from "./components/UserDashboard";
+import { WelcomePage } from "./components/WelcomePage";
 import { useTransformation } from "./lib/stores/useTransformation";
+import { useAuth } from "./lib/stores/useAuth";
 import { Card } from "./components/ui/card";
 import "@fontsource/inter";
 
 const queryClient = new QueryClient();
 
 function AppContent() {
+  const { user, isLoading } = useAuth();
   const { 
     uploadedImage, 
     transformedImage, 
@@ -18,12 +22,74 @@ function AppContent() {
     isProcessing, 
     currentOperation 
   } = useTransformation();
+  const [currentView, setCurrentView] = useState<'studio' | 'dashboard'>('studio');
 
+  // Show loading state while checking authentication
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#fffdf5] flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin w-8 h-8 border-4 border-[#c6c2e6] border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-lg font-semibold text-black">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show welcome page for unauthenticated users
+  if (!user) {
+    return <WelcomePage />;
+  }
+
+  // Show dashboard view for authenticated users
+  if (currentView === 'dashboard') {
+    return (
+      <div className="min-h-screen bg-[#fffdf5]">
+        <div className="max-w-7xl mx-auto">
+          {/* Header with navigation */}
+          <div className="p-4">
+            <UserHeader />
+            <div className="flex justify-center mt-4 space-x-4">
+              <button
+                onClick={() => setCurrentView('studio')}
+                className="bg-white text-black py-2 px-6 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
+              >
+                🎨 Studio
+              </button>
+              <button
+                onClick={() => setCurrentView('dashboard')}
+                className="bg-[#c6c2e6] text-black py-2 px-6 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000]"
+              >
+                📊 Dashboard
+              </button>
+            </div>
+          </div>
+          <UserDashboard />
+        </div>
+      </div>
+    );
+  }
+
+  // Show studio view for authenticated users (main transformation interface)
   return (
     <div className="min-h-screen bg-[#fffdf5] p-4 font-sans">
       <div className="max-w-7xl mx-auto">
-        {/* Header with Auth */}
+        {/* Header with navigation */}
         <UserHeader />
+        <div className="flex justify-center mt-4 mb-6 space-x-4">
+          <button
+            onClick={() => setCurrentView('studio')}
+            className="bg-[#6c8b3a] text-white py-2 px-6 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000]"
+          >
+            🎨 Studio
+          </button>
+          <button
+            onClick={() => setCurrentView('dashboard')}
+            className="bg-white text-black py-2 px-6 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
+          >
+            📊 Dashboard
+          </button>
+        </div>
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
