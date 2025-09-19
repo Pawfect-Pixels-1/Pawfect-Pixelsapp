@@ -104,9 +104,10 @@ export async function transformImageHandler(req: Request, res: Response) {
     if (finalPrediction.status !== "succeeded") {
       const error = (finalPrediction as any).error || "Transformation failed";
       console.error("❌ Transformation failed:", error);
+      // Preserve existing operation data while updating status
+      const existingOperation = operationStore.get(prediction.id);
       operationStore.set(prediction.id, {
-        id: prediction.id,
-        type: "transform",
+        ...existingOperation,
         status: "failed",
         error,
         failedAt: new Date(),
@@ -140,9 +141,10 @@ export async function transformImageHandler(req: Request, res: Response) {
       }
     }
 
+    // Preserve existing operation data while updating status
+    const existingOperation = operationStore.get(prediction.id);
     operationStore.set(prediction.id, {
-      id: prediction.id,
-      type: "transform",
+      ...existingOperation,
       status: "completed",
       result: localUrls,
       completedAt: new Date(),
@@ -204,9 +206,63 @@ export async function transformImageHandler(req: Request, res: Response) {
   }
 }
 
-/** (unchanged) Generate a video using your existing video-capable model */
+/** Generate a video using video-capable model */
 export async function generateVideoHandler(req: Request, res: Response) {
-  // ... your existing implementation ...
+  try {
+    const { image, style, options } = req.body as {
+      image: string; // data URL or http(s) URL
+      style?: string;
+      options?: {
+        duration?: number;
+        fps?: number;
+      };
+    };
+
+    if (!image) {
+      return res.status(400).json({ success: false, error: "No input image provided" });
+    }
+
+    console.log("🎬 Video generation request:", { style, options });
+
+    // For now, return a placeholder implementation since we don't have a specific video model
+    // In a real implementation, you would:
+    // 1. Call a video generation model like RunwayML or similar
+    // 2. Follow the same async pattern as transformImageHandler
+    // 3. Store the operation in operationStore with proper userId
+    
+    // Create a placeholder operation
+    const operationId = `video_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    operationStore.set(operationId, {
+      id: operationId,
+      type: "video",
+      status: "processing",
+      createdAt: new Date(),
+      input: { image, style, options },
+      userId: req.user?.id,
+    });
+
+    // Simulate processing time and then mark as failed for now
+    setTimeout(() => {
+      const existingOperation = operationStore.get(operationId);
+      operationStore.set(operationId, {
+        ...existingOperation,
+        status: "failed",
+        error: "Video generation not yet implemented - placeholder functionality only",
+        failedAt: new Date(),
+      });
+    }, 2000);
+
+    return res.json({
+      success: true,
+      operationId,
+      message: "Video generation started (placeholder implementation)"
+    });
+
+  } catch (error) {
+    console.error("❌ Error in video generation handler:", error);
+    return res.status(500).json({ success: false, error: "Internal server error during video generation" });
+  }
 }
 
 /** Status endpoint returns arrays when available */
@@ -215,6 +271,11 @@ export async function getStatusHandler(req: Request, res: Response) {
     const { operationId } = req.params;
     const operation = operationStore.get(operationId);
     if (!operation) {
+      return res.status(404).json({ success: false, error: "Operation not found" });
+    }
+
+    // Verify operation ownership - only the user who created the operation can check its status
+    if (!operation.userId || !req.user || operation.userId !== req.user.id) {
       return res.status(404).json({ success: false, error: "Operation not found" });
     }
 
