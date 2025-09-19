@@ -227,13 +227,12 @@ export function useRealtimeTransform() {
     });
   }, []);
 
-  // Auto-connect on mount (temporarily disabled)
+  // Auto-connect on mount
   useEffect(() => {
-    // Temporarily disabled while fixing authentication
-    // connect();
-    // return () => {
-    //   disconnect();
-    // };
+    connect();
+    return () => {
+      disconnect();
+    };
   }, [connect, disconnect]);
 
   return {

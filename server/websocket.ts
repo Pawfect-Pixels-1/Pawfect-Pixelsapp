@@ -40,22 +40,12 @@ class RealtimeService {
   }
 
   private handleConnection(ws: AuthenticatedWebSocket, request: IncomingMessage, sessionParser: any) {
-    // Parse session from the request - need to create proper response object
-    const fakeRes = {
-      getHeader: () => {},
-      setHeader: () => {},
-      end: () => {},
-    };
-    
-    sessionParser(request, fakeRes, () => {
+    // Parse session from the request
+    sessionParser(request, {} as any, () => {
       const session = (request as any).session;
       
       if (!session?.user) {
-        console.log('❌ WebSocket connection rejected: not authenticated', {
-          hasSession: !!session,
-          sessionId: session?.id,
-          cookies: request.headers.cookie
-        });
+        console.log('❌ WebSocket connection rejected: not authenticated');
         ws.close(1008, 'Authentication required');
         return;
       }
