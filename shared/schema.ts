@@ -64,10 +64,20 @@ export const userFilesRelations = relations(userFiles, ({ one }) => ({
 }));
 
 // Zod schemas
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
-  email: true,
+export const insertUserSchema = z.object({
+  username: z.string()
+    .trim()
+    .min(3, 'Username must be at least 3 characters')
+    .max(32, 'Username must be 32 characters or less')
+    .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores'),
+  password: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(128, 'Password must be 128 characters or less'),
+  email: z.string()
+    .email('Invalid email format')
+    .optional()
+    .nullable()
+    .transform(val => val === '' ? null : val)
 });
 
 export const insertTransformationSchema = createInsertSchema(transformations);

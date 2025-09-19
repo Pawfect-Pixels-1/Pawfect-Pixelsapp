@@ -22,7 +22,7 @@ interface AuthState {
 }
 
 export const useAuth = create<AuthState>()(
-  subscribeWithSelector((set, get) => ({
+  subscribeWithSelector((set, _get) => ({
     user: null,
     isAuthenticated: false,
     isLoading: false,

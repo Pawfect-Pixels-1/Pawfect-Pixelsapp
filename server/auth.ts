@@ -83,8 +83,16 @@ export const registerHandler = async (req: Request, res: Response) => {
       email,
     });
 
-    // Create session
-    req.session.userId = user.id;
+    // Create session with regeneration to prevent session fixation
+    await new Promise<void>((resolve, reject) => {
+      req.session.regenerate((err) => {
+        if (err) reject(err);
+        else {
+          req.session.userId = user.id;
+          resolve();
+        }
+      });
+    });
 
     console.log(`👤 New user registered: ${username}`);
     
@@ -123,8 +131,16 @@ export const loginHandler = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Create session
-    req.session.userId = user.id;
+    // Create session with regeneration to prevent session fixation
+    await new Promise<void>((resolve, reject) => {
+      req.session.regenerate((err) => {
+        if (err) reject(err);
+        else {
+          req.session.userId = user.id;
+          resolve();
+        }
+      });
+    });
 
     console.log(`🔐 User logged in: ${username}`);
     
