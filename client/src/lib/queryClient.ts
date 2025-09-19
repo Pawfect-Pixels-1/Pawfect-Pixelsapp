@@ -1,22 +1,8 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-// Custom error class for authentication errors
-export class AuthenticationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'AuthenticationError';
-  }
-}
-
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
-    
-    // Handle authentication errors specifically
-    if (res.status === 401) {
-      throw new AuthenticationError('Authentication required. Please sign in to continue.');
-    }
-    
     throw new Error(`${res.status}: ${text}`);
   }
 }

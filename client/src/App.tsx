@@ -1,26 +1,16 @@
-import React from "react";
+import React, { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import UploadZone from "./components/UploadZone";
 import PreviewGrid from "./components/PreviewGrid";
 import TransformationControls from "./components/TransformationControls";
 import { UserHeader } from "./components/UserHeader";
-import { LandingPage } from "./components/LandingPage";
 import { useTransformation } from "./lib/stores/useTransformation";
-import { useAuth } from "./lib/stores/useAuth";
 import { Card } from "./components/ui/card";
 import "@fontsource/inter";
 
 const queryClient = new QueryClient();
 
 function AppContent() {
-  const { isAuthenticated } = useAuth();
-
-  // Show landing page for unauthenticated users
-  if (!isAuthenticated) {
-    return <LandingPage />;
-  }
-
-  // Show full app for authenticated users - only load transformation store when needed
   const { 
     uploadedImage, 
     transformedImage, 

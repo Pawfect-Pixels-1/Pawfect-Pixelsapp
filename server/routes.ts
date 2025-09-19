@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { transformImageHandler, generateVideoHandler, getStatusHandler } from "./services/replicate";
 import { uploadMiddleware } from "./middleware/upload";
-import { registerHandler, loginHandler, logoutHandler, getCurrentUserHandler, requireAuth } from "./auth";
+import { registerHandler, loginHandler, logoutHandler, getCurrentUserHandler, requireAuth, optionalAuth } from "./auth";
 import { storage, fileStorage } from "./storage";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -12,14 +12,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/logout", logoutHandler);
   app.get("/api/auth/me", getCurrentUserHandler);
   
-  // Image transformation endpoint (requires authentication)
-  app.post("/api/transform", requireAuth, uploadMiddleware, transformImageHandler);
+  // Image transformation endpoint (with optional auth for user history)
+  app.post("/api/transform", optionalAuth, uploadMiddleware, transformImageHandler);
   
-  // Video generation endpoint (requires authentication)
-  app.post("/api/generate-video", requireAuth, uploadMiddleware, generateVideoHandler);
+  // Video generation endpoint (with optional auth for user history)
+  app.post("/api/generate-video", optionalAuth, uploadMiddleware, generateVideoHandler);
   
-  // Status polling endpoint for long-running operations (requires authentication)
-  app.get("/api/status/:operationId", requireAuth, getStatusHandler);
+  // Status polling endpoint for long-running operations
+  app.get("/api/status/:operationId", getStatusHandler);
   
   // User-specific routes (require authentication)
   app.get("/api/user/transformations", requireAuth, async (req, res) => {

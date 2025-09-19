@@ -4,7 +4,6 @@ import { Wand2, Video, Sparkles, Palette } from 'lucide-react';
 // Store + API
 import { useTransformation } from '../lib/stores/useTransformation';
 import { transformImage, generateVideo } from '../lib/replicate';
-import { AuthenticationError } from '../lib/queryClient';
 
 // --- Exact enums from the model schema ---
 // See: https://replicate.com/flux-kontext-apps/face-to-many-kontext (API/Schema)
@@ -113,12 +112,7 @@ const TransformationControls: React.FC = () => {
       setTransformedImages(urls); // store the full array (legacy first image stays in sync)
     } catch (error) {
       console.error('Transformation failed:', error);
-      
-      if (error instanceof AuthenticationError) {
-        alert('Please sign in to transform images. Click the "Sign In" button in the top right corner.');
-      } else {
-        alert('Transformation failed. Please try again.');
-      }
+      alert('Transformation failed. Please try again.');
     } finally {
       setIsProcessing(false);
       setCurrentOperation(null);
@@ -136,12 +130,7 @@ const TransformationControls: React.FC = () => {
       setGeneratedVideo(result);
     } catch (error) {
       console.error('Video generation failed:', error);
-      
-      if (error instanceof AuthenticationError) {
-        alert('Please sign in to generate videos. Click the "Sign In" button in the top right corner.');
-      } else {
-        alert('Video generation failed. Please try again.');
-      }
+      alert('Video generation failed. Please try again.');
     } finally {
       setIsProcessing(false);
       setCurrentOperation(null);

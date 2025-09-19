@@ -1,5 +1,5 @@
 // Frontend API calls to our backend for Replicate operations
-import { apiRequest, AuthenticationError } from './queryClient';
+import { apiRequest } from './queryClient';
 
 // --- Schema enums ---
 export type StyleEnum =
@@ -68,12 +68,6 @@ export async function transformImage(
     return outputs;
   } catch (error) {
     console.error('❌ Image transformation failed:', error);
-    
-    // Preserve authentication errors to show proper sign-in prompts
-    if (error instanceof AuthenticationError) {
-      throw error;
-    }
-    
     throw new Error('Failed to transform image. Please try again.');
   }
 }
@@ -104,12 +98,6 @@ export async function generateVideo(imageDataUrl: string, style: string): Promis
     return result.videoUrl as string;
   } catch (error) {
     console.error('❌ Video generation failed:', error);
-    
-    // Preserve authentication errors to show proper sign-in prompts
-    if (error instanceof AuthenticationError) {
-      throw error;
-    }
-    
     throw new Error('Failed to generate video. Please try again.');
   }
 }
@@ -138,12 +126,6 @@ export async function pollOperationStatus(operationId: string): Promise<any> {
       attempts++;
     } catch (e) {
       console.error('Error polling operation status:', e);
-      
-      // Stop polling on authentication errors
-      if (e instanceof AuthenticationError) {
-        throw e;
-      }
-      
       attempts++;
       await new Promise((r) => setTimeout(r, 5000));
     }
