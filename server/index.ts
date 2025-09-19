@@ -11,7 +11,8 @@ import { setupVite, serveStatic, log } from "./vite";
 const app = express();
 
 // Trust proxy for rate limiting in hosted environments
-app.set('trust proxy', true);
+// Set to 1 for Replit which uses one layer of reverse proxy
+app.set('trust proxy', 1);
 
 // Security middleware - Helmet for various HTTP headers
 app.use(helmet({
