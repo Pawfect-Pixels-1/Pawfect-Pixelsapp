@@ -12,9 +12,30 @@ import { Readable } from 'stream';
 const sql = neon(process.env.DATABASE_URL!);
 const db = drizzle(sql, { schema: { users, transformations, userFiles } });
 
-// App Storage client - disabled for now until properly configured
+// App Storage client - enable Replit Object Storage
 let storageClient: Client | null = null;
-console.log('📁 Using local file storage (App Storage disabled)');
+
+// Initialize App Storage if available (deferred to avoid blocking startup)
+function initializeAppStorage() {
+  // Run asynchronously to avoid blocking server startup
+  setTimeout(async () => {
+    try {
+      // Only try to initialize if we detect proper Replit app storage environment
+      if (process.env.REPLIT_DEPLOYMENT_ID && process.env.REPL_SLUG) {
+        storageClient = new Client();
+        console.log('☁️ App Storage enabled (Replit Object Storage)');
+      } else {
+        console.log('📁 Using local file storage (App Storage not configured)');
+      }
+    } catch (error: any) {
+      console.log('📁 Using local file storage (App Storage unavailable):', error?.message || 'Unknown error');
+      storageClient = null;
+    }
+  }, 1000); // Delay initialization to not block server startup
+}
+
+// Initialize storage with delay
+initializeAppStorage();
 
 // File storage interface
 export interface StoredFile {
