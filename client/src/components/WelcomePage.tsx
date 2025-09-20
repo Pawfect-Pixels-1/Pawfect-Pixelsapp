@@ -78,6 +78,86 @@ export function WelcomePage() {
             </Card>
           </div>
 
+          {/* Before/After Showcase Section */}
+          <div className="mb-12">
+            <h2 className="text-3xl font-bold text-black text-center mb-4" style={{ fontFamily: 'Wedges, Inter, sans-serif' }}>
+              See the Magic in Action
+            </h2>
+            <p className="text-xl text-gray-700 text-center mb-8">
+              Real transformations from our users
+            </p>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Cartoon Transformation */}
+              <Card className="shadow-[8px_8px_0px_0px_#c6c2e6] border-2 border-black overflow-hidden">
+                <div className="p-6">
+                  <h3 className="text-xl font-bold text-black text-center mb-4">Cartoon Style Transformation</h3>
+                  <div className="grid grid-cols-2 gap-4 items-center">
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-gray-600 mb-2">BEFORE</p>
+                      <div className="relative overflow-hidden rounded-lg border-2 border-black shadow-[4px_4px_0px_0px_#000000]">
+                        <img 
+                          src="/showcase/before-1.jpeg" 
+                          alt="Original portrait photo" 
+                          className="w-full h-48 object-cover hover:scale-105 transition-transform duration-300"
+                        />
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-gray-600 mb-2">AFTER</p>
+                      <div className="relative overflow-hidden rounded-lg border-2 border-black shadow-[4px_4px_0px_0px_#000000]">
+                        <img 
+                          src="/showcase/after-1-cartoon.png" 
+                          alt="Cartoon style transformation" 
+                          className="w-full h-48 object-cover hover:scale-105 transition-transform duration-300"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-center mt-4">
+                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-[#c6c2e6] text-black border border-black">
+                      🎨 Cartoon Style
+                    </span>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Angel Transformation */}
+              <Card className="shadow-[8px_8px_0px_0px_#F59E0B] border-2 border-black overflow-hidden">
+                <div className="p-6">
+                  <h3 className="text-xl font-bold text-black text-center mb-4">Angel Character Transformation</h3>
+                  <div className="grid grid-cols-2 gap-4 items-center">
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-gray-600 mb-2">BEFORE</p>
+                      <div className="relative overflow-hidden rounded-lg border-2 border-black shadow-[4px_4px_0px_0px_#000000]">
+                        <img 
+                          src="/showcase/before-2.jpeg" 
+                          alt="Original portrait photo" 
+                          className="w-full h-48 object-cover hover:scale-105 transition-transform duration-300"
+                        />
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-gray-600 mb-2">AFTER</p>
+                      <div className="relative overflow-hidden rounded-lg border-2 border-black shadow-[4px_4px_0px_0px_#000000]">
+                        <img 
+                          src="/showcase/after-2-angel.png" 
+                          alt="Angel character transformation with wings and halo" 
+                          className="w-full h-48 object-cover hover:scale-105 transition-transform duration-300"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-center mt-4">
+                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-[#F59E0B] text-black border border-black">
+                      👼 Angel Character
+                    </span>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          </div>
+
           {/* How It Works Section */}
           <Card className="shadow-[8px_8px_0px_0px_#6c8b3a] border-2 border-black mb-12">
             <div className="p-8">
