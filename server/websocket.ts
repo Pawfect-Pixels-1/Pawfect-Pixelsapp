@@ -82,27 +82,42 @@ class RealtimeService {
     });
   }
 
-  private authenticateWebSocket(ws: AuthenticatedWebSocket, request: IncomingMessage, session: any) {
+  private async authenticateWebSocket(ws: AuthenticatedWebSocket, request: IncomingMessage, session: any) {
     console.log('🔍 Session parsing result:', {
       hasSession: !!session,
       sessionId: session?.id,
-      hasUser: !!session?.user,
-      userId: session?.user?.id,
-      username: session?.user?.username
+      hasUserId: !!session?.userId,
+      userId: session?.userId
     });
     
-    if (!session?.user) {
+    if (!session?.userId) {
       console.log('❌ WebSocket connection rejected: not authenticated');
       ws.close(1008, 'Authentication required');
       return;
     }
 
-    // Store user info in WebSocket connection
-    ws.userId = session.user.id;
-    ws.username = session.user.username;
-    ws.sessionId = session.id;
+    try {
+      // Fetch user data from database like HTTP auth middleware does
+      const { storage } = await import('./storage');
+      const user = await storage.getUser(session.userId);
+      
+      if (!user) {
+        console.log('❌ WebSocket connection rejected: invalid user');
+        ws.close(1008, 'Invalid user session');
+        return;
+      }
 
-    console.log(`🔌 WebSocket connected: ${ws.username} (${ws.userId})`);
+      // Store user info in WebSocket connection
+      ws.userId = user.id;
+      ws.username = user.username;
+      ws.sessionId = session.id;
+
+      console.log(`🔌 WebSocket connected: ${ws.username} (${ws.userId})`);
+    } catch (error) {
+      console.error('❌ WebSocket authentication error:', error);
+      ws.close(1008, 'Authentication error');
+      return;
+    }
 
     // Add to clients map
     if (ws.userId) {
