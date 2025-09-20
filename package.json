@@ -10,9 +10,6 @@
     "check": "tsc",
     "db:push": "drizzle-kit push"
   },
-  "overrides": {
-    "drizzle-kit": {
-      "esbuild": "^0.25.0"
     }
   },
   "dependencies": {
