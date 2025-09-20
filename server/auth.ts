@@ -16,6 +16,13 @@ declare global {
   }
 }
 
+// Extend express-session to include userId
+declare module 'express-session' {
+  interface SessionData {
+    userId?: number;
+  }
+}
+
 // Auth middleware to check if user is logged in
 export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   if (!req.session?.userId) {
@@ -187,7 +194,7 @@ export const getCurrentUserHandler = async (req: Request, res: Response) => {
     res.json({
       success: true,
       user: {
-        id: user.id,
+        id: user.id,  
         username: user.username,
         email: user.email,
       }

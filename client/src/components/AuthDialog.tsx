@@ -72,7 +72,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     
     const success = await register(data.username, data.password, data.email);
     if (success) {
-      onOpenChange(false);
+      onOpenChange(false);  // Close dialog on successful registration
       resetRegister();
     }
   };
@@ -118,7 +118,11 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                         className="pl-10"
                         {...registerLogin('username', {
                           required: 'Username is required',
-                          minLength: { value: 3, message: 'Username must be at least 3 characters' }
+                          minLength: { value: 3, message: 'Username must be at least 3 characters' },
+                          pattern: {
+                            value: /^[a-zA-Z0-9_]+$/,
+                            message: 'Username can only contain letters, numbers, and underscores'
+                          }
                         })}
                       />
                     </div>
