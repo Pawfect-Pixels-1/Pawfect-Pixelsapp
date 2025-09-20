@@ -1,7 +1,7 @@
 import { users, transformations, userFiles, type User, type InsertUser, type Transformation, type UserFile, type InsertTransformation, type InsertUserFile } from "@shared/schema";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { eq } from "drizzle-orm";
+import { eq, like } from "drizzle-orm";
 import { Client } from "@replit/object-storage";
 import fs from 'fs/promises';
 import path from 'path';
@@ -69,7 +69,7 @@ export interface IFileStorage {
   saveFileFromUrl(url: string, originalName: string, mimeType: string, userId?: number): Promise<StoredFile>;
   getFile(id: string): Promise<StoredFile | undefined>;
   deleteFile(id: string): Promise<boolean>;
-  getFileUrl(id: string): string;
+  getFileUrl(id: string): Promise<string>;
   getUserFiles(userId: number): Promise<StoredFile[]>;
 }
 
@@ -214,13 +214,26 @@ export class HybridFileStorage implements IFileStorage {
   }
 
   async getFile(id: string): Promise<StoredFile | undefined> {
-    // In a real implementation, you might store file metadata in a database
-    // For now, we'll use the database lookup
     try {
-      const result = await db.select().from(userFiles).where(eq(userFiles.fileName, `${id}${'.png'}`)).limit(1); // Simplified lookup
+      // Validate and sanitize ID to prevent wildcard abuse
+      const sanitizedId = this.validateAndSanitizeId(id);
+      
+      // First try exact filename match
+      let result = await db.select().from(userFiles)
+        .where(eq(userFiles.fileName, sanitizedId))
+        .limit(1);
+      
+      // If not found, try prefix match (id without extension)
+      if (!result[0] && this.isValidIdPattern(sanitizedId)) {
+        const results = await db.select().from(userFiles)
+          .where(like(userFiles.fileName, `${sanitizedId}.%`))
+          .limit(1);
+        result = results;
+      }
+      
       if (result[0]) {
         return {
-          id,
+          id: this.extractIdFromFilename(result[0].fileName),
           filename: result[0].fileName,
           originalName: result[0].originalFileName,
           mimeType: result[0].fileType,
@@ -231,25 +244,49 @@ export class HybridFileStorage implements IFileStorage {
       }
     } catch (error) {
       console.error(`❌ Error getting file metadata: ${error}`);
+      throw new Error(`Failed to get file metadata: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
     return undefined;
   }
 
   async deleteFile(id: string): Promise<boolean> {
     try {
-      // Find file in database first
-      const result = await db.select().from(userFiles).where(eq(userFiles.fileName, `${id}.png`)).limit(1);
-      if (!result[0]) return false;
+      // Validate and sanitize ID to prevent wildcard abuse
+      const sanitizedId = this.validateAndSanitizeId(id);
       
-      const storageKey = this.extractStorageKeyFromUrl(result[0].fileUrl);
-      if (storageKey && storageClient) {
-        await storageClient.delete(storageKey);
+      // First try exact filename match
+      let result = await db.select().from(userFiles)
+        .where(eq(userFiles.fileName, sanitizedId))
+        .limit(1);
+      
+      // If not found, try prefix match (id without extension)
+      if (!result[0] && this.isValidIdPattern(sanitizedId)) {
+        const results = await db.select().from(userFiles)
+          .where(like(userFiles.fileName, `${sanitizedId}.%`))
+          .limit(1);
+        result = results;
       }
       
-      // Remove from database
-      await db.delete(userFiles).where(eq(userFiles.fileName, `${id}.png`));
+      if (!result[0]) {
+        console.warn(`⚠️ File not found in database: ${id}`);
+        return false;
+      }
       
-      console.log(`🗑️ Deleted file from App Storage: ${id}`);
+      // Delete from storage if using App Storage
+      const storageKey = this.extractStorageKeyFromUrl(result[0].fileUrl);
+      if (storageKey && storageClient) {
+        try {
+          await storageClient.delete(storageKey);
+        } catch (storageError) {
+          console.warn(`⚠️ Failed to delete from App Storage: ${storageError}`);
+          // Continue with database deletion even if storage deletion fails
+        }
+      }
+      
+      // Remove from database using the actual filename found
+      await db.delete(userFiles).where(eq(userFiles.fileName, result[0].fileName));
+      
+      console.log(`🗑️ Deleted file: ${result[0].fileName}`);
       return true;
     } catch (error) {
       console.error(`❌ Failed to delete file: ${error}`);
@@ -257,16 +294,16 @@ export class HybridFileStorage implements IFileStorage {
     }
   }
 
-  getFileUrl(id: string): string {
-    // This would need to be looked up from database in a real implementation
-    return ``;
+  async getFileUrl(id: string): Promise<string> {
+    const file = await this.getFile(id);
+    return file ? file.url : '';
   }
 
   async getUserFiles(userId: number): Promise<StoredFile[]> {
     try {
       const files = await db.select().from(userFiles).where(eq(userFiles.userId, userId));
       return files.map(file => ({
-        id: file.id.toString(),
+        id: this.extractIdFromFilename(file.fileName),
         filename: file.fileName,
         originalName: file.originalFileName,
         mimeType: file.fileType,
@@ -276,7 +313,7 @@ export class HybridFileStorage implements IFileStorage {
       }));
     } catch (error) {
       console.error(`❌ Error getting user files: ${error}`);
-      return [];
+      throw new Error(`Failed to get user files: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -286,6 +323,22 @@ export class HybridFileStorage implements IFileStorage {
     return match ? match[1] : null;
   }
 
+  private extractIdFromFilename(filename: string): string {
+    // Extract the id part (timestamp_hash) from filename before extension
+    const lastDotIndex = filename.lastIndexOf('.');
+    return lastDotIndex > 0 ? filename.substring(0, lastDotIndex) : filename;
+  }
+
+  private validateAndSanitizeId(id: string): string {
+    // Remove any potential SQL wildcard characters for safety
+    return id.replace(/[%_]/g, '');
+  }
+
+  private isValidIdPattern(id: string): boolean {
+    // Validate ID matches expected pattern: timestamp_hash (digits_hex)
+    return /^\d{10,20}_[a-f0-9]{6,16}$/.test(id);
+  }
+
   private getExtensionFromMimeType(mimeType: string): string {
     const mimeToExt: Record<string, string> = {
       'image/jpeg': '.jpg',
@@ -293,8 +346,14 @@ export class HybridFileStorage implements IFileStorage {
       'image/png': '.png',
       'image/webp': '.webp',
       'image/gif': '.gif',
+      'image/bmp': '.bmp',
+      'image/tiff': '.tiff',
+      'image/svg+xml': '.svg',
       'video/mp4': '.mp4',
-      'video/webm': '.webm'
+      'video/webm': '.webm',
+      'video/avi': '.avi',
+      'video/mov': '.mov',
+      'video/quicktime': '.mov'
     };
     return mimeToExt[mimeType] || '.bin';
   }
