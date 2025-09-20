@@ -56,7 +56,9 @@ export async function transformImageHandler(req: Request, res: Response) {
       persona: options?.persona ?? "None",
       num_images: clampInt(options?.num_images ?? 1, 1, 10),
       aspect_ratio: options?.aspect_ratio ?? "match_input_image",
-      output_format: (options?.output_format as "png" | "jpg") ?? "png",
+      output_format: (options?.output_format === 'png' || options?.output_format === 'jpg') 
+        ? options.output_format 
+        : 'png',
       preserve_outfit: Boolean(options?.preserve_outfit ?? false),
       preserve_background: Boolean(options?.preserve_background ?? false),
       safety_tolerance:
@@ -114,10 +116,16 @@ export async function transformImageHandler(req: Request, res: Response) {
       return res.status(500).json({ success: false, error, operationId: prediction.id });
     }
 
-    // Expect array<string> per schema (URIs). :contentReference[oaicite:3]{index=3}
-    const replicateUrls: string[] = Array.isArray(finalPrediction.output)
-      ? (finalPrediction.output as string[])
-      : [String(finalPrediction.output)];
+    // Validate and safely extract output URLs
+    let replicateUrls: string[];
+    if (Array.isArray(finalPrediction.output)) {
+      replicateUrls = finalPrediction.output.filter((url): url is string => typeof url === 'string');
+    } else if (finalPrediction.output && typeof finalPrediction.output === 'string') {
+      replicateUrls = [finalPrediction.output];
+    } else {
+      console.error('❌ Invalid prediction output format:', finalPrediction.output);
+      return res.status(500).json({ success: false, error: 'Invalid output format from AI service', operationId: prediction.id });
+    }
 
     // Download & store all outputs locally (prefer durable links)
     const localUrls: string[] = [];
@@ -132,7 +140,9 @@ export async function transformImageHandler(req: Request, res: Response) {
           input.output_format === "jpg" ? "image/jpeg" : "image/png",
           req.user?.id  // Pass user ID if authenticated
         );
-        const local = `${req.protocol}://${req.get("host")}${stored.url}`;
+        const protocol = req.protocol || 'http';
+        const host = req.get('host') || 'localhost';
+        const local = `${protocol}://${host}${stored.url}`;
         localUrls.push(local);
       } catch (e) {
         console.warn("⚠️ Could not persist output, falling back to remote URL:", url, e);
@@ -164,7 +174,9 @@ export async function transformImageHandler(req: Request, res: Response) {
             'image/png',
             req.user.id
           );
-          originalFileUrl = `${req.protocol}://${req.get("host")}${originalFile.url}`;
+          const protocol = req.protocol || 'http';
+          const host = req.get('host') || 'localhost';
+          originalFileUrl = `${protocol}://${host}${originalFile.url}`;
         }
         
         await storage.createTransformation({
@@ -222,9 +234,19 @@ export async function getStatusHandler(req: Request, res: Response) {
       try {
         const prediction = await replicate.predictions.get(operationId);
         if (prediction.status === "succeeded") {
-          const outs: string[] = Array.isArray(prediction.output)
-            ? (prediction.output as string[])
-            : [String(prediction.output)];
+          let outs: string[];
+          if (Array.isArray(prediction.output)) {
+            outs = prediction.output.filter((url): url is string => typeof url === 'string');
+          } else if (prediction.output && typeof prediction.output === 'string') {
+            outs = [prediction.output];
+          } else {
+            console.error('❌ Invalid prediction output format in status check:', prediction.output);
+            operation.status = 'failed';
+            operation.error = 'Invalid output format from AI service';
+            operation.failedAt = new Date();
+            operationStore.set(operationId, operation);
+            return res.json({ success: true, operation });
+          }
 
           const stored: string[] = [];
           for (let i = 0; i < outs.length; i++) {
@@ -234,8 +256,11 @@ export async function getStatusHandler(req: Request, res: Response) {
               const isVideo = operation.type === "video";
               const ext = isVideo ? ".mp4" : ".png"; // default if unknown
               const mime = isVideo ? "video/mp4" : "image/png";
-              const file = await fileStorage.saveFile(buf, `${operation.type}_${operationId}_${i}${ext}`, mime, operation.userId);
-              stored.push(`${req.protocol}://${req.get("host")}${file.url}`);
+              // Only save with userId if it exists
+              const file = await fileStorage.saveFile(buf, `${operation.type}_${operationId}_${i}${ext}`, mime, operation.userId || undefined);
+              const protocol = req.protocol || 'http';
+              const host = req.get('host') || 'localhost';
+              stored.push(`${protocol}://${host}${file.url}`);
             } catch {
               stored.push(outs[i]);
             }

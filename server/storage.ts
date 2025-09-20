@@ -125,7 +125,7 @@ export class DatabaseStorage implements IStorage {
       return true;
     } catch (error) {
       console.error(`❌ Failed to delete user file from database: ${error}`);
-      return false;
+      throw new Error(`Failed to delete user file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 }
@@ -179,14 +179,19 @@ export class HybridFileStorage implements IFileStorage {
     
     // If userId provided, save file metadata to database
     if (userId) {
-      await db.insert(userFiles).values({
-        userId,
-        fileName: filename,
-        originalFileName: originalName,
-        fileUrl,
-        fileType: mimeType,
-        fileSize: buffer.length,
-      });
+      try {
+        await db.insert(userFiles).values({
+          userId,
+          fileName: filename,
+          originalFileName: originalName,
+          fileUrl,
+          fileType: mimeType,
+          fileSize: buffer.length,
+        });
+      } catch (error) {
+        console.error(`❌ Failed to save file metadata to database: ${error}`);
+        throw new Error(`Failed to save file metadata: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
     
     return storedFile;
@@ -204,7 +209,7 @@ export class HybridFileStorage implements IFileStorage {
       return await this.saveFile(buffer, originalName, mimeType, userId);
     } catch (error) {
       console.error(`❌ Failed to save file from URL: ${error}`);
-      throw new Error('Failed to save file from URL');
+      throw new Error(`Failed to save file from URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -248,7 +253,7 @@ export class HybridFileStorage implements IFileStorage {
       return true;
     } catch (error) {
       console.error(`❌ Failed to delete file: ${error}`);
-      return false;
+      throw new Error(`Failed to delete file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

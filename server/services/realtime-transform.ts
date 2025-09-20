@@ -45,7 +45,11 @@ export async function realtimeTransformImageHandler(req: Request, res: Response)
       };
     };
 
-    const userId = req.user!.id; // Required by auth middleware
+    // Ensure user is authenticated (should be guaranteed by requireAuth middleware)
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, error: "Authentication required" });
+    }
+    const userId = req.user.id;
 
     // Build input_image from either explicit options or the `image` field
     const input_image = options?.input_image ?? image;
@@ -60,7 +64,9 @@ export async function realtimeTransformImageHandler(req: Request, res: Response)
       persona: options?.persona ?? "None",
       num_images: clampInt(options?.num_images ?? 1, 1, 10),
       aspect_ratio: options?.aspect_ratio ?? "match_input_image",
-      output_format: (options?.output_format as "png" | "jpg") ?? "png",
+      output_format: (options?.output_format === 'png' || options?.output_format === 'jpg') 
+        ? options.output_format 
+        : 'png',
       preserve_outfit: Boolean(options?.preserve_outfit ?? false),
       preserve_background: Boolean(options?.preserve_background ?? false),
       safety_tolerance:
@@ -171,9 +177,17 @@ async function processTransformationAsync(operationId: string, userId: number, r
     realtimeService.updateProgress(operationId, userId, 95, "Saving results...");
 
     // Process results
-    const replicateUrls: string[] = Array.isArray(finalPrediction.output)
-      ? (finalPrediction.output as string[])
-      : [String(finalPrediction.output)];
+    // Validate and safely extract output URLs
+    let replicateUrls: string[];
+    if (Array.isArray(finalPrediction.output)) {
+      replicateUrls = finalPrediction.output.filter((url): url is string => typeof url === 'string');
+    } else if (finalPrediction.output && typeof finalPrediction.output === 'string') {
+      replicateUrls = [finalPrediction.output];
+    } else {
+      console.error('❌ Invalid prediction output format:', finalPrediction.output);
+      realtimeService.sendError(operationId, userId, 'Invalid output format from AI service');
+      return;
+    }
 
     // Download & store all outputs locally
     const localUrls: string[] = [];
@@ -188,7 +202,9 @@ async function processTransformationAsync(operationId: string, userId: number, r
           input.output_format === "jpg" ? "image/jpeg" : "image/png",
           userId
         );
-        const local = `${req.protocol}://${req.get("host")}${stored.url}`;
+        const protocol = req.protocol || 'http';
+        const host = req.get('host') || 'localhost';
+        const local = `${protocol}://${host}${stored.url}`;
         localUrls.push(local);
 
         // Send preview of each completed image
@@ -215,7 +231,9 @@ async function processTransformationAsync(operationId: string, userId: number, r
           'image/png',
           userId
         );
-        originalFileUrl = `${req.protocol}://${req.get("host")}${originalFile.url}`;
+        const protocol = req.protocol || 'http';
+        const host = req.get('host') || 'localhost';
+        originalFileUrl = `${protocol}://${host}${originalFile.url}`;
       }
       
       await storage.createTransformation({
