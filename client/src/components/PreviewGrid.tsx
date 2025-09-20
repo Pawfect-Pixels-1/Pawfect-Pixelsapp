@@ -11,6 +11,13 @@ const PreviewGrid: React.FC = () => {
   } = useTransformation();
 
   const hasContent = uploadedImage || transformedImage || generatedVideo;
+  
+  console.log('🖼️ PreviewGrid state:', {
+    hasUploadedImage: !!uploadedImage,
+    hasTransformedImage: !!transformedImage,
+    hasGeneratedVideo: !!generatedVideo,
+    hasContent
+  });
 
   return (
     <div className="p-6 h-full flex flex-col">

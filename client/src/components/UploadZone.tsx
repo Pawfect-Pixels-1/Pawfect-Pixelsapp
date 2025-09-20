@@ -9,14 +9,19 @@ const UploadZone: React.FC = () => {
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
+    console.log('📁 File dropped:', file?.name, file?.type, file?.size);
     if (file && file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const result = e.target?.result as string;
+        console.log('📷 Image loaded as data URL, length:', result?.length);
         setUploadedImage(result);
         clearResults(); // Clear any previous results when new image is uploaded
+        console.log('✅ Image state updated');
       };
       reader.readAsDataURL(file);
+    } else {
+      console.log('❌ Invalid file type or no file selected');
     }
   }, [setUploadedImage, clearResults]);
 
