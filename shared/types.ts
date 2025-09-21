@@ -64,7 +64,7 @@ export interface VideoGenerationResponse {
 
 /** Operation status now supports array results (images) */
 export interface OperationStatus {
-  id: string;
+  id?: string;
   type: 'transform' | 'video';
   status: 'processing' | 'completed' | 'failed';
   /** images[] for transform, single URL for video */
@@ -73,6 +73,9 @@ export interface OperationStatus {
   createdAt: Date;
   completedAt?: Date;
   failedAt?: Date;
+  userId?: number;
+  model?: string;
+  input?: any;
 }
 
 export interface StatusResponse {

@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import Replicate from "replicate";
 import { storage, fileStorage } from "../storage";
+import { OperationStatus } from "../../shared/types";
 import fetch from "node-fetch";
 
 if (!process.env.REPLICATE_API_TOKEN) {
@@ -11,7 +12,7 @@ if (!process.env.REPLICATE_API_TOKEN) {
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
 // Tracks operation status/results across requests
-const operationStore = new Map<string, any>();
+const operationStore = new Map<string, OperationStatus>();
 
 /** --- Pin a known version for reproducibility (update as needed) --- */
 // Example version hash from the model’s API page:
@@ -111,6 +112,7 @@ export async function transformImageHandler(req: Request, res: Response) {
         type: "transform",
         status: "failed",
         error,
+        createdAt: new Date(),
         failedAt: new Date(),
       });
       return res.status(500).json({ success: false, error, operationId: prediction.id });
@@ -155,6 +157,7 @@ export async function transformImageHandler(req: Request, res: Response) {
       type: "transform",
       status: "completed",
       result: localUrls,
+      createdAt: new Date(),
       completedAt: new Date(),
     });
 
@@ -216,9 +219,82 @@ export async function transformImageHandler(req: Request, res: Response) {
   }
 }
 
-/** (unchanged) Generate a video using your existing video-capable model */
+/** Generate a video using Kling v1.6 model */
 export async function generateVideoHandler(req: Request, res: Response) {
-  // ... your existing implementation ...
+  try {
+    console.log('🎬 Starting video generation with Kling v1.6');
+    
+    if (!req.file && !req.body.image) {
+      return res.status(400).json({ success: false, error: "No image provided" });
+    }
+
+    // Extract request data
+    const { prompt, imageSource } = req.body;
+    
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({ success: false, error: "Video prompt is required" });
+    }
+
+    // Handle image data - either from uploaded file or base64 data
+    let imageBuffer: Buffer;
+    let imageDataUrl: string;
+    
+    if (req.file) {
+      imageBuffer = req.file.buffer;
+      imageDataUrl = `data:${req.file.mimetype};base64,${imageBuffer.toString('base64')}`;
+    } else if (req.body.image) {
+      // Handle base64 image data
+      const imageData = req.body.image.replace(/^data:image\/[^;]+;base64,/, '');
+      imageBuffer = Buffer.from(imageData, 'base64');
+      imageDataUrl = req.body.image;
+    } else {
+      return res.status(400).json({ success: false, error: "No valid image data provided" });
+    }
+
+    console.log(`📝 Video prompt: "${prompt}"`);
+    console.log(`🖼️ Image source: ${imageSource || 'uploaded'}`);
+
+    // Create prediction with Kling v1.6 model
+    const prediction = await replicate.predictions.create({
+      model: "kwaivgi/kling-v1.6-standard",
+      input: {
+        prompt: prompt.trim(),
+        start_image: imageDataUrl,
+      },
+    });
+
+    console.log(`🔄 Kling v1.6 prediction created: ${prediction.id}`);
+
+    // Store operation details for polling
+    const operation: OperationStatus = {
+      status: 'processing',
+      type: 'video',
+      createdAt: new Date(),
+      userId: req.user?.id,
+      model: 'kling-v1.6-standard',
+      input: {
+        prompt,
+        imageSource: imageSource || 'uploaded'
+      }
+    };
+    
+    operationStore.set(prediction.id, operation);
+
+    // Return operation ID for status polling
+    return res.json({
+      success: true,
+      operationId: prediction.id,
+      status: 'processing',
+      message: 'Video generation started. Use the operation ID to check status.'
+    });
+
+  } catch (error) {
+    console.error("❌ Error in video generation handler:", error);
+    return res.status(500).json({ 
+      success: false, 
+      error: "Internal server error during video generation" 
+    });
+  }
 }
 
 /** Status endpoint returns arrays when available */

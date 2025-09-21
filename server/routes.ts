@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { transformImageHandler, generateVideoHandler, getStatusHandler } from "./services/replicate";
-import { realtimeTransformImageHandler, setRealtimeService } from "./services/realtime-transform";
+import { realtimeTransformImageHandler, setRealtimeService } from "./services/realtime-transform.js";
 import { uploadMiddleware } from "./middleware/upload";
 import { registerHandler, loginHandler, logoutHandler, getCurrentUserHandler, requireAuth, optionalAuth } from "./auth";
 import { storage, fileStorage } from "./storage";

@@ -46,11 +46,6 @@ const PERSONA_ENUM = [
 type StyleEnum = (typeof STYLE_ENUM)[number];
 type PersonaEnum = (typeof PERSONA_ENUM)[number];
 
-const videoOptions = [
-  { id: 'talking', label: 'Talking Portrait', icon: Video },
-  { id: 'animation', label: 'Character Animation', icon: Sparkles },
-  { id: 'expression', label: 'Expression Change', icon: Wand2 },
-];
 
 const iconFor = (label: string) => {
   // keep your playful look using a couple of icons
@@ -62,6 +57,7 @@ const iconFor = (label: string) => {
 const TransformationControls: React.FC = () => {
   const {
     uploadedImage,
+    transformedImages,     // Add this to check if transformed images exist
     setTransformedImages,   // new array-based setter (kept in your store update)
     setGeneratedVideo,
     setIsProcessing,
@@ -73,8 +69,10 @@ const TransformationControls: React.FC = () => {
   const [selectedStyle, setSelectedStyle] = useState<StyleEnum>('Random');
   const [selectedPersona, setSelectedPersona] = useState<PersonaEnum>('Random');
 
-  // Video style selection (unchanged)
-  const [selectedVideoStyle, setSelectedVideoStyle] = useState<string>('');
+  // Video generation state
+  const [videoPrompt, setVideoPrompt] = useState<string>('');
+  const [imageSource, setImageSource] = useState<'uploaded' | 'transformed'>('uploaded');
+  const [videoOperationId, setVideoOperationId] = useState<string | null>(null);
   
   // Real-time preview state
   const [showRealtimeModal, setShowRealtimeModal] = useState(false);
@@ -163,14 +161,27 @@ const TransformationControls: React.FC = () => {
   };
 
   const handleGenerateVideo = async () => {
-    if (!uploadedImage || !selectedVideoStyle || isProcessing) return;
+    if (!uploadedImage || !videoPrompt.trim() || isProcessing) return;
+    
+    // Check if transformed image is required but not available
+    if (imageSource === 'transformed' && transformedImages.length === 0) {
+      alert('Please transform an image first before generating a video from the transformed result.');
+      return;
+    }
 
     try {
       setIsProcessing(true);
       setCurrentOperation('video');
 
-      const result = await generateVideo(uploadedImage, selectedVideoStyle);
-      setGeneratedVideo(result);
+      // Use the appropriate image source
+      const imageToUse = imageSource === 'transformed' ? transformedImages[0] : uploadedImage;
+      
+      const result = await generateVideo(imageToUse, videoPrompt.trim(), imageSource);
+      setVideoOperationId(result.operationId);
+      
+      // Start polling for results (implement polling logic here if needed)
+      console.log('Video generation started with operation ID:', result.operationId);
+      
     } catch (error) {
       console.error('Video generation failed:', error);
       alert('Video generation failed. Please try again.');
@@ -288,41 +299,65 @@ const TransformationControls: React.FC = () => {
             </div>
           </div>
 
-          {/* Video Generation Section (unchanged) */}
+          {/* Video Generation Section - Kling v1.6 */}
           <div className="space-y-3">
             <h3 className="font-semibold text-black flex items-center">
               <Video className="w-4 h-4 mr-2" />
-              Generate Video
+              Generate Video (Kling v1.6)
             </h3>
 
-            <div className="grid grid-cols-1 gap-2">
-              {videoOptions.map((option) => {
-                const Icon = option.icon;
-                return (
-                  <button
-                    key={option.id}
-                    onClick={() => setSelectedVideoStyle(option.id)}
+            {/* Image Source Selection */}
+            <div className="space-y-2">
+              <div className="text-sm font-semibold">Image Source</div>
+              <div className="space-y-2">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="imageSource"
+                    value="uploaded"
+                    checked={imageSource === 'uploaded'}
+                    onChange={(e) => setImageSource(e.target.value as 'uploaded' | 'transformed')}
                     disabled={isProcessing}
-                    className={`
-                      p-3 rounded-lg border-2 text-left transition-all font-medium
-                      ${selectedVideoStyle === option.id
-                        ? 'bg-[#6c8b3a] border-[#6c8b3a] text-white shadow-[4px_4px_0px_0px_#000000]'
-                        : 'bg-white border-gray-300 text-black hover:border-[#6c8b3a] hover:bg-[#6c8b3a]/10'}
-                      ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-                    `}
-                  >
-                    <div className="flex items-center">
-                      <Icon className="w-4 h-4 mr-2" />
-                      <span className="text-sm">{option.label}</span>
-                    </div>
-                  </button>
-                );
-              })}
+                    className="text-[#6c8b3a] focus:ring-[#6c8b3a] disabled:opacity-50"
+                  />
+                  <span className="text-sm text-black">Use uploaded image</span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="imageSource"
+                    value="transformed"
+                    checked={imageSource === 'transformed'}
+                    onChange={(e) => setImageSource(e.target.value as 'uploaded' | 'transformed')}
+                    disabled={isProcessing || transformedImages.length === 0}
+                    className="text-[#6c8b3a] focus:ring-[#6c8b3a] disabled:opacity-50"
+                  />
+                  <span className={`text-sm ${transformedImages.length === 0 ? 'text-gray-400' : 'text-black'}`}>
+                    Use transformed image {transformedImages.length === 0 ? '(transform an image first)' : ''}
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Video Prompt Input */}
+            <div className="space-y-2">
+              <div className="text-sm font-semibold">Video Description</div>
+              <textarea
+                value={videoPrompt}
+                onChange={(e) => setVideoPrompt(e.target.value)}
+                disabled={isProcessing}
+                placeholder="Describe the video you want to create (e.g., 'a portrait photo of a person with flowing hair underwater')"
+                className="w-full p-3 border-2 border-gray-300 rounded-lg resize-none h-20 text-sm disabled:opacity-50 disabled:cursor-not-allowed focus:border-[#6c8b3a] focus:outline-none"
+                maxLength={200}
+              />
+              <div className="text-xs text-gray-500 text-right">
+                {videoPrompt.length}/200 characters
+              </div>
             </div>
 
             <button
               onClick={handleGenerateVideo}
-              disabled={!selectedVideoStyle || isProcessing}
+              disabled={!videoPrompt.trim() || isProcessing || (imageSource === 'transformed' && transformedImages.length === 0)}
               className="w-full bg-[#6c8b3a] text-white py-3 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-[4px_4px_0px_0px_#000000] disabled:hover:translate-x-0 disabled:hover:translate-y-0"
             >
               <div className="flex items-center justify-center">

@@ -73,19 +73,22 @@ export async function transformImage(
 }
 
 /**
- * Generate a video from an uploaded image using Replicate AI models
+ * Generate a video using Kling v1.6 model from either uploaded or transformed image
  */
-export async function generateVideo(imageDataUrl: string, style: string): Promise<string> {
+export async function generateVideo(
+  imageDataUrl: string, 
+  prompt: string, 
+  imageSource: 'uploaded' | 'transformed' = 'uploaded'
+): Promise<{ operationId: string; status: string }> {
   try {
-    console.log('🎬 Starting video generation:', style);
+    console.log('🎬 Starting Kling v1.6 video generation');
+    console.log('📝 Prompt:', prompt);
+    console.log('🖼️ Image source:', imageSource);
 
     const response = await apiRequest('POST', '/api/generate-video', {
       image: imageDataUrl,
-      style: style,
-      options: {
-        duration: getVideoDuration(style),
-        fps: 24,
-      },
+      prompt: prompt,
+      imageSource: imageSource,
     });
 
     const result = await response.json();
@@ -94,8 +97,11 @@ export async function generateVideo(imageDataUrl: string, style: string): Promis
       throw new Error(result.error || 'Video generation failed');
     }
 
-    console.log('✅ Video generation completed');
-    return result.videoUrl as string;
+    console.log('✅ Video generation started. Operation ID:', result.operationId);
+    return {
+      operationId: result.operationId,
+      status: result.status,
+    };
   } catch (error) {
     console.error('❌ Video generation failed:', error);
     throw new Error('Failed to generate video. Please try again.');
@@ -112,7 +118,7 @@ export async function pollOperationStatus(operationId: string): Promise<any> {
 
   while (attempts < maxAttempts) {
     try {
-      const response = await apiRequest('GET', `/api/status/${operationId}`);
+      const response = await apiRequest('GET', `/api/status/${operationId}`, undefined);
       const result = await response.json();
 
       const op = result?.operation;
