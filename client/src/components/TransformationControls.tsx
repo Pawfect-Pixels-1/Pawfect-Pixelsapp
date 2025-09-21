@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Wand2, Video, Sparkles, Palette, Zap, Clock } from 'lucide-react';
 
 // Store + API
 import { useTransformation } from '../lib/stores/useTransformation';
-import { transformImage, generateVideo } from '../lib/replicate';
+import { transformImage, generateVideo, pollOperationStatus } from '../lib/replicate';
 import { RealtimeTransformModal } from './RealtimeTransformModal';
+import { VideoPlayer } from './VideoPlayer';
 
 // --- Exact enums from the model schema ---
 // See: https://replicate.com/flux-kontext-apps/face-to-many-kontext (API/Schema)
@@ -58,6 +59,7 @@ const TransformationControls: React.FC = () => {
   const {
     uploadedImage,
     transformedImages,     // Add this to check if transformed images exist
+    generatedVideo,        // Add this to check if video exists
     setTransformedImages,   // new array-based setter (kept in your store update)
     setGeneratedVideo,
     setIsProcessing,
@@ -73,6 +75,7 @@ const TransformationControls: React.FC = () => {
   const [videoPrompt, setVideoPrompt] = useState<string>('');
   const [imageSource, setImageSource] = useState<'uploaded' | 'transformed'>('uploaded');
   const [videoOperationId, setVideoOperationId] = useState<string | null>(null);
+  const [showVideoPlayer, setShowVideoPlayer] = useState(false);
   
   // Real-time preview state
   const [showRealtimeModal, setShowRealtimeModal] = useState(false);
@@ -179,15 +182,43 @@ const TransformationControls: React.FC = () => {
       const result = await generateVideo(imageToUse, videoPrompt.trim(), imageSource);
       setVideoOperationId(result.operationId);
       
-      // Start polling for results (implement polling logic here if needed)
       console.log('Video generation started with operation ID:', result.operationId);
+      
+      // Start polling for video generation results
+      pollForVideoResult(result.operationId);
       
     } catch (error) {
       console.error('Video generation failed:', error);
       alert('Video generation failed. Please try again.');
+      setIsProcessing(false);
+      setCurrentOperation(null);
+    }
+  };
+
+  const pollForVideoResult = async (operationId: string) => {
+    try {
+      console.log('Starting to poll for video result:', operationId);
+      const operation = await pollOperationStatus(operationId);
+      
+      if (operation.status === 'completed' && operation.result) {
+        console.log('Video generation completed!', operation.result);
+        
+        // Set the generated video URL
+        const videoUrl = Array.isArray(operation.result) ? operation.result[0] : operation.result;
+        setGeneratedVideo(videoUrl);
+        setShowVideoPlayer(true);
+        
+        console.log('Video generation completed successfully!');
+      } else if (operation.status === 'failed') {
+        throw new Error(operation.error || 'Video generation failed');
+      }
+    } catch (error) {
+      console.error('Video polling failed:', error);
+      alert('Video generation failed. Please try again.');
     } finally {
       setIsProcessing(false);
       setCurrentOperation(null);
+      setVideoOperationId(null);
     }
   };
 
@@ -362,9 +393,40 @@ const TransformationControls: React.FC = () => {
             >
               <div className="flex items-center justify-center">
                 <Video className="w-4 h-4 mr-2" />
-                Generate Video
+                {isProcessing && videoOperationId ? 'Generating Video...' : 'Generate Video'}
               </div>
             </button>
+            
+            {/* Video Generation Progress */}
+            {isProcessing && videoOperationId && (
+              <div className="mt-3 p-3 bg-yellow-50 border-2 border-yellow-300 rounded-lg">
+                <div className="flex items-center space-x-2 mb-2">
+                  <Clock className="w-4 h-4 text-yellow-600" />
+                  <span className="text-sm font-medium text-yellow-800">
+                    Video generation in progress...
+                  </span>
+                </div>
+                <div className="text-xs text-yellow-700">
+                  Operation ID: {videoOperationId}
+                </div>
+                <div className="text-xs text-yellow-600 mt-1">
+                  This may take 2-5 minutes. Please wait...
+                </div>
+              </div>
+            )}
+
+            {/* Show Generated Video Button */}
+            {generatedVideo && !isProcessing && (
+              <button
+                onClick={() => setShowVideoPlayer(true)}
+                className="w-full bg-purple-500 text-white py-3 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all mt-2"
+              >
+                <div className="flex items-center justify-center">
+                  <Video className="w-4 h-4 mr-2" />
+                  View Generated Video
+                </div>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -378,6 +440,13 @@ const TransformationControls: React.FC = () => {
         }}
         formData={realtimeFormData}
         onSuccess={handleRealtimeSuccess}
+      />
+      
+      {/* Video Player Modal */}
+      <VideoPlayer
+        videoUrl={generatedVideo}
+        isVisible={showVideoPlayer}
+        onClose={() => setShowVideoPlayer(false)}
       />
     </div>
   );
