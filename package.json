@@ -85,6 +85,7 @@
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
     "react-dropzone": "^14.3.8",
+    "react-easy-crop": "^5.5.1",
     "react-haiku": "^2.2.0",
     "react-helmet-async": "^2.0.5",
     "react-hook-form": "^7.62.0",
