@@ -1,10 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Wand2, Play, Video, Image as ImageIcon, MousePointer2, ArrowRight, Star, ShieldCheck, Crown } from "lucide-react";
+import { Sparkles, Star } from "lucide-react";
 import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { AuthDialog } from "./AuthDialog";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,15 +145,12 @@ function useCountingNumber(to: number, durationMs = 800) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function WelcomePage() {
   const [showAuthDialog, setShowAuthDialog] = useState(false);
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [showStickyCta, setShowStickyCta] = useState(false);
 
   const openLogin = () => {
-    setAuthMode("login");
     setShowAuthDialog(true);
   };
   const openRegister = () => {
-    setAuthMode("register");
     setShowAuthDialog(true);
   };
 
@@ -164,13 +160,6 @@ export default function WelcomePage() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const users = useCountingNumber(12_430);
-  const renders = useCountingNumber(87_900);
-  const styles = useCountingNumber(60);
-
-  const styleMarquee = [
-    "Cartoon", "Angel", "Cyberpunk", "Gothic", "Clay", "Anime", "Watercolor", "Vogue", "Noir", "Fantasy",
-  ];
 
   return (
     <>
@@ -225,7 +214,6 @@ export default function WelcomePage() {
       <AuthDialog 
         open={showAuthDialog} 
         onOpenChange={setShowAuthDialog} 
-        mode={authMode} 
       />
     </>
   );
