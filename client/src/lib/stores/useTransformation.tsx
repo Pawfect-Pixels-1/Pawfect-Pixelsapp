@@ -6,6 +6,7 @@ export type OperationType = 'transform' | 'video' | null;
 interface TransformationState {
   // Image data
   uploadedImage: string | null;
+  originalImage: string | null; // Store original before editing
   transformedImage: string | null;
   transformedImages: string[];
   generatedVideo: string | null;
@@ -15,14 +16,19 @@ interface TransformationState {
   currentOperation: OperationType;
   progress: number;
   
+  // Editor state
+  showImageEditor: boolean;
+  
   // Actions
   setUploadedImage: (image: string | null) => void;
+  setOriginalImage: (image: string | null) => void;
   setTransformedImage: (image: string | null) => void;
   setTransformedImages: (images: string[]) => void;
   setGeneratedVideo: (video: string | null) => void;
   setIsProcessing: (processing: boolean) => void;
   setCurrentOperation: (operation: OperationType) => void;
   setProgress: (progress: number) => void;
+  setShowImageEditor: (show: boolean) => void;
   clearResults: () => void;
   reset: () => void;
 }
@@ -31,16 +37,22 @@ export const useTransformation = create<TransformationState>()(
   subscribeWithSelector((set, get) => ({
     // Initial state
     uploadedImage: null,
+    originalImage: null,
     transformedImage: null,
     transformedImages: [],
     generatedVideo: null,
     isProcessing: false,
     currentOperation: null,
     progress: 0,
+    showImageEditor: false,
     
     // Actions
     setUploadedImage: (image) => {
       set({ uploadedImage: image });
+    },
+    
+    setOriginalImage: (image) => {
+      set({ originalImage: image });
     },
     
     setTransformedImage: (image) => {
@@ -73,6 +85,10 @@ export const useTransformation = create<TransformationState>()(
       set({ progress: Math.min(100, Math.max(0, progress)) });
     },
     
+    setShowImageEditor: (show) => {
+      set({ showImageEditor: show });
+    },
+    
     clearResults: () => {
       set({
         transformedImage: null,
@@ -87,12 +103,14 @@ export const useTransformation = create<TransformationState>()(
     reset: () => {
       set({
         uploadedImage: null,
+        originalImage: null,
         transformedImage: null,
         transformedImages: [],
         generatedVideo: null,
         isProcessing: false,
         currentOperation: null,
-        progress: 0
+        progress: 0,
+        showImageEditor: false
       });
     }
   }))

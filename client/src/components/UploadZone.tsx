@@ -1,10 +1,19 @@
 import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, Image as ImageIcon, X } from 'lucide-react';
+import { Upload, Image as ImageIcon, X, Edit3 } from 'lucide-react';
 import { useTransformation } from '../lib/stores/useTransformation';
+import { ImageEditor } from './ImageEditor';
 
 const UploadZone: React.FC = () => {
-  const { setUploadedImage, uploadedImage, clearResults } = useTransformation();
+  const { 
+    setUploadedImage, 
+    uploadedImage, 
+    originalImage,
+    setOriginalImage,
+    showImageEditor,
+    setShowImageEditor,
+    clearResults 
+  } = useTransformation();
   const [dragActive, setDragActive] = useState(false);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -15,7 +24,8 @@ const UploadZone: React.FC = () => {
       reader.onload = (e) => {
         const result = e.target?.result as string;
         console.log('📷 Image loaded as data URL, length:', result?.length);
-        setUploadedImage(result);
+        setOriginalImage(result); // Store original
+        setUploadedImage(result); // Set as current uploaded image
         clearResults(); // Clear any previous results when new image is uploaded
         console.log('✅ Image state updated');
       };
@@ -37,7 +47,23 @@ const UploadZone: React.FC = () => {
 
   const removeImage = () => {
     setUploadedImage(null);
+    setOriginalImage(null);
     clearResults();
+  };
+
+  const openEditor = () => {
+    setShowImageEditor(true);
+  };
+
+  const handleEditorSave = (editedImage: string) => {
+    setUploadedImage(editedImage);
+    setOriginalImage(editedImage); // Update original so next edit starts from this version
+    setShowImageEditor(false);
+    console.log('✅ Image edited and updated');
+  };
+
+  const handleEditorCancel = () => {
+    setShowImageEditor(false);
   };
 
   return (
@@ -79,21 +105,49 @@ const UploadZone: React.FC = () => {
               alt="Uploaded portrait"
               className="w-full h-full object-cover rounded-lg border-2 border-black"
             />
-            <button
-              onClick={removeImage}
-              className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full border-2 border-black shadow-[2px_2px_0px_0px_#000000] hover:shadow-[1px_1px_0px_0px_#000000] hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <div className="absolute top-2 right-2 flex gap-2">
+              <button
+                onClick={openEditor}
+                className="bg-[#F59E0B] text-black p-1 rounded-full border-2 border-black shadow-[2px_2px_0px_0px_#000000] hover:shadow-[1px_1px_0px_0px_#000000] hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
+                title="Edit image"
+              >
+                <Edit3 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={removeImage}
+                className="bg-red-500 text-white p-1 rounded-full border-2 border-black shadow-[2px_2px_0px_0px_#000000] hover:shadow-[1px_1px_0px_0px_#000000] hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
+                title="Remove image"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
           
           <div className="bg-[#c6c2e6]/20 rounded-lg p-3 border-2 border-[#c6c2e6]">
-            <div className="flex items-center text-sm text-black">
-              <ImageIcon className="w-4 h-4 mr-2" />
-              <span className="font-medium">Portrait uploaded successfully</span>
+            <div className="flex items-center justify-between text-sm text-black">
+              <div className="flex items-center">
+                <ImageIcon className="w-4 h-4 mr-2" />
+                <span className="font-medium">Portrait uploaded successfully</span>
+              </div>
+              <button
+                onClick={openEditor}
+                className="flex items-center gap-1 px-2 py-1 bg-[#F59E0B] text-black rounded border border-black hover:bg-[#D97706] transition-colors text-xs font-medium"
+              >
+                <Edit3 className="w-3 h-3" />
+                Edit
+              </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Image Editor Modal */}
+      {showImageEditor && originalImage && (
+        <ImageEditor
+          image={originalImage}
+          onSave={handleEditorSave}
+          onCancel={handleEditorCancel}
+        />
       )}
     </div>
   );
