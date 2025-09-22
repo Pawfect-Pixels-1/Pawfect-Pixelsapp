@@ -158,6 +158,63 @@ export function WelcomePage() {
             </div>
           </div>
 
+          {/* Video Generation Showcase Section */}
+          <div className="mb-12">
+            <h2 className="text-3xl font-bold text-black text-center mb-4" style={{ fontFamily: 'Wedges, Inter, sans-serif' }}>
+              Bring Your Portraits to Life
+            </h2>
+            <p className="text-xl text-gray-700 text-center mb-8">
+              Generate stunning videos from your transformed images
+            </p>
+            
+            <Card className="shadow-[8px_8px_0px_0px_#10B981] border-2 border-black overflow-hidden max-w-4xl mx-auto">
+              <div className="p-6">
+                <h3 className="text-xl font-bold text-black text-center mb-6">From Photo to Motion</h3>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-gray-600 mb-3">ORIGINAL IMAGE</p>
+                    <div className="relative overflow-hidden rounded-lg border-2 border-black shadow-[4px_4px_0px_0px_#000000]">
+                      <img 
+                        src="/showcase/before-image.jpeg" 
+                        alt="Original portrait before video generation" 
+                        className="w-full h-64 object-cover hover:scale-105 transition-transform duration-300"
+                      />
+                    </div>
+                    <div className="mt-3">
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-200 text-black border border-black">
+                        📸 Static Image
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-gray-600 mb-3">GENERATED VIDEO</p>
+                    <div className="relative overflow-hidden rounded-lg border-2 border-black shadow-[4px_4px_0px_0px_#000000]">
+                      <video 
+                        className="w-full h-64 object-cover"
+                        controls
+                        poster="/showcase/before-image.jpeg"
+                        preload="metadata"
+                      >
+                        <source src="/showcase/after-video.mp4" type="video/mp4" />
+                        Your browser does not support the video tag.
+                      </video>
+                    </div>
+                    <div className="mt-3">
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-[#10B981] text-white border border-black">
+                        🎬 AI Video
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-center mt-6">
+                  <p className="text-gray-600 text-sm">
+                    Transform any portrait into a dynamic video with natural motion and cinematic effects
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </div>
+
           {/* How It Works Section */}
           <Card className="shadow-[8px_8px_0px_0px_#6c8b3a] border-2 border-black mb-12">
             <div className="p-8">
