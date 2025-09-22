@@ -265,6 +265,28 @@ export async function generateVideoHandler(req: Request, res: Response) {
 
     console.log(`🔄 Kling v1.6 prediction created: ${prediction.id}`);
 
+    // Save original image to file storage first
+    let originalFileName = 'uploaded_image.jpg';
+    let originalFileUrl = '';
+    
+    if (req.user?.id) {
+      try {
+        // Save the original image that will be used for video generation
+        const originalFile = await fileStorage.saveFile(
+          imageBuffer,
+          originalFileName,
+          req.file?.mimetype || 'image/jpeg',
+          req.user.id
+        );
+        const protocol = req.protocol || 'http';
+        const host = req.get('host') || 'localhost';
+        originalFileUrl = `${protocol}://${host}${originalFile.url}`;
+        originalFileName = originalFile.originalName;
+      } catch (error) {
+        console.error('Error saving original image for video generation:', error);
+      }
+    }
+
     // Store operation details for polling
     const operation: OperationStatus = {
       status: 'processing',
@@ -272,6 +294,8 @@ export async function generateVideoHandler(req: Request, res: Response) {
       createdAt: new Date(),
       userId: req.user?.id,
       model: 'kling-v1.6-standard',
+      originalFileName,
+      originalFileUrl,
       input: {
         prompt,
         imageSource: imageSource || 'uploaded'
@@ -346,6 +370,29 @@ export async function getStatusHandler(req: Request, res: Response) {
           operation.result = stored;
           operation.completedAt = new Date();
           operationStore.set(operationId, operation);
+
+          // Save video generation to database
+          if (operation.type === "video" && operation.userId) {
+            try {
+              await storage.createTransformation({
+                userId: operation.userId,
+                type: 'video',
+                status: 'completed',
+                originalFileName: operation.originalFileName || 'uploaded_image',
+                originalFileUrl: operation.originalFileUrl || '',
+                transformationOptions: JSON.stringify({
+                  prompt: operation.input?.prompt || '',
+                  imageSource: operation.input?.imageSource || 'uploaded',
+                  model: operation.model || 'kling-v1.6-standard'
+                }),
+                resultFileUrls: stored,
+              });
+              console.log(`💾 Video generation saved to database for user: ${operation.userId}`);
+            } catch (error) {
+              console.error('Error saving video generation to database:', error);
+              // Don't fail the whole operation if database save fails
+            }
+          }
         } else if (prediction.status === "failed") {
           operation.status = "failed";
           operation.error = (prediction as any).error || "Operation failed";

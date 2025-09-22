@@ -76,6 +76,8 @@ export interface OperationStatus {
   userId?: number;
   model?: string;
   input?: any;
+  originalFileName?: string;
+  originalFileUrl?: string;
 }
 
 export interface StatusResponse {
