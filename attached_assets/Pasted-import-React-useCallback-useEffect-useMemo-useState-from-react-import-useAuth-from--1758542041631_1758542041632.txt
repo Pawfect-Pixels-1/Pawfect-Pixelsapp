@@ -5,7 +5,6 @@ import { VideoPlayer } from './VideoPlayer';
 import { ShareButton } from './ShareButton';
 import { useSharing } from '../lib/stores/useSharing';
 import { useServerAnalytics } from '../lib/hooks/useServerAnalytics';
-import { TabButton } from './ui/TabButton';
 import { Play, Image, Film, FileText, ArrowUpDown, Share2, BarChart3 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -241,7 +240,7 @@ export function UserDashboard() {
             icon={<BarChart3 className="w-4 h-4 mr-2" />}
             activeClass="bg-[#F59E0B] text-white"
           >
-            Analytics ({(serverAnalytics?.success ? serverAnalytics.analytics.totalShares : totalShares) ?? 0})
+            Analytics {(serverAnalytics?.success ? serverAnalytics.analytics.totalShares : totalShares) ?? 0}
           </TabButton>
         </div>
 
@@ -508,31 +507,34 @@ export function UserDashboard() {
                                 <div className="text-xs text-gray-600 space-y-1">
                                   {t.type === 'video' ? (
                                     <>
-                                      {options.prompt && (
-                                        <p><strong>Prompt:</strong> {options.prompt}</p>
+                                      {options && (options as VideoOptions).prompt && (
+                                        <p><strong>Prompt:</strong> {(options as VideoOptions).prompt}</p>
                                       )}
-                                      {options.imageSource && (
-                                        <p><strong>Image Source:</strong> {options.imageSource}</p>
+                                      {options && (options as VideoOptions).imageSource && (
+                                        <p><strong>Image Source:</strong> {(options as VideoOptions).imageSource}</p>
                                       )}
-                                      {options.model && (
-                                        <p><strong>Model:</strong> {options.model}</p>
+                                      {options && (options as VideoOptions).model && (
+                                        <p><strong>Model:</strong> {(options as VideoOptions).model}</p>
                                       )}
                                     </>
                                   ) : (
                                     <>
-                                      {options.style && (
-                                        <p><strong>Style:</strong> {options.style}</p>
+                                      {options && (options as ImageOptions).style && (
+                                        <p><strong>Style:</strong> {(options as ImageOptions).style}</p>
                                       )}
-                                      {options.persona && (
-                                        <p><strong>Persona:</strong> {options.persona}</p>
+                                      {options && (options as ImageOptions).persona && (
+                                        <p><strong>Persona:</strong> {(options as ImageOptions).persona}</p>
+                                      )}
+                                      {options && (options as ImageOptions).model && (
+                                        <p><strong>Model:</strong> {(options as ImageOptions).model}</p>
                                       )}
                                     </>
                                   )}
                                 </div>
                               </div>
                             );
-                          } catch (error) {
-                            console.error('Error parsing transformation options:', error);
+                          } catch (err) {
+                            console.error('Error parsing transformation options:', err);
                             return null;
                           }
                         })()
@@ -543,56 +545,52 @@ export function UserDashboard() {
               )}
             </div>
           ) : (
-            // Files list
+            // Files table
             <div className="space-y-4">
               {files.length === 0 ? (
-                <Card className="shadow-[8px_8px_0px_0px_#10B981] border-2 border-black">
+                <Card className="shadow-[8px_8px_0px_0px_#F59E0B] border-2 border-black">
                   <div className="p-6 text-center">
                     <p className="text-lg text-gray-600">No files yet</p>
-                    <p className="text-sm text-gray-500 mt-2">Upload some images to get started!</p>
+                    <p className="text-sm text-gray-500 mt-2">Files will appear here when you create transformations!</p>
                   </div>
                 </Card>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {files.map((file) => (
-                    <Card key={file.id} className="shadow-[8px_8px_0px_0px_#10B981] border-2 border-black">
-                      <div className="p-4">
-                        <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden border-2 border-black mb-3">
-                          {file.fileType.startsWith('image/') ? (
-                            <img
-                              src={file.fileUrl}
-                              alt={file.originalFileName}
-                              className="w-full h-full object-cover"
-                              loading="lazy"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-gray-200">
-                              <FileText className="w-12 h-12 text-gray-400" />
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <h3 className="text-sm font-semibold text-black truncate" title={file.originalFileName}>
-                            {file.originalFileName}
-                          </h3>
-                          <div className="text-xs text-gray-600 space-y-1">
-                            <p>Size: {formatFileSize(file.fileSize)}</p>
-                            <p>Type: {file.fileType}</p>
-                            <p>Created: {formatDate(file.createdAt)}</p>
-                          </div>
-                          
-                          <button
-                            onClick={() => downloadFile(file.fileUrl, file.originalFileName)}
-                            className="w-full bg-[#10B981] text-white py-2 px-3 rounded text-sm font-medium border border-black hover:bg-[#059669] transition-colors"
-                          >
-                            Download
-                          </button>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
+                <Card className="shadow-[8px_8px_0px_0px_#10B981] border-2 border-black">
+                  <div className="p-6">
+                    <h3 className="text-lg font-semibold text-black mb-4">All Your Files</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b-2 border-black">
+                            <th className="text-left py-2 font-semibold">File Name</th>
+                            <th className="text-left py-2 font-semibold">Type</th>
+                            <th className="text-left py-2 font-semibold">Size</th>
+                            <th className="text-left py-2 font-semibold">Created</th>
+                            <th className="text-left py-2 font-semibold">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {files.map((f) => (
+                            <tr key={f.id} className="border-b border-gray-200">
+                              <td className="py-2">{f.originalFileName}</td>
+                              <td className="py-2">{f.fileType}</td>
+                              <td className="py-2">{formatFileSize(f.fileSize)}</td>
+                              <td className="py-2">{formatDate(f.createdAt)}</td>
+                              <td className="py-2">
+                                <button
+                                  onClick={() => downloadFile(f.fileUrl, f.originalFileName)}
+                                  className="bg-[#10B981] text-white px-3 py-1 rounded text-xs font-medium border border-black hover:bg-[#059669] transition-colors"
+                                >
+                                  Download
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Card>
               )}
             </div>
           )}
@@ -600,15 +598,41 @@ export function UserDashboard() {
       )}
 
       {/* Video Player Modal */}
-      {showVideoPlayer && selectedVideo && (
-        <VideoPlayer
-          videoUrl={selectedVideo}
-          onClose={() => {
-            setShowVideoPlayer(false);
-            setSelectedVideo('');
-          }}
-        />
-      )}
+      <VideoPlayer
+        videoUrl={selectedVideo}
+        isVisible={showVideoPlayer}
+        onClose={() => setShowVideoPlayer(false)}
+      />
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface TabButtonProps {
+  active: boolean;
+  onClick: () => void;
+  icon?: React.ReactNode;
+  activeClass?: string;
+  children: React.ReactNode;
+}
+
+function TabButton({ active, onClick, icon, activeClass, children }: TabButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        `px-4 py-2 font-semibold border-2 border-black rounded-lg transition-all flex items-center ` +
+        (active
+          ? `${activeClass ?? 'bg-[#c6c2e6] text-black'} shadow-[4px_4px_0px_0px_#000000]`
+          : 'bg-white text-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px]')
+      }
+    >
+      {icon}
+      {children}
+    </button>
   );
 }

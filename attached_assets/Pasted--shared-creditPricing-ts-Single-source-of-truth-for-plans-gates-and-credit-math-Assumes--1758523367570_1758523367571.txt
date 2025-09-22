@@ -1,0 +1,171 @@
+// @shared/creditPricing.ts
+// Single source of truth for plans, gates, and credit math.
+// Assumes 1 app credit ≈ $0.01 cost to you (tweak CREDIT_USD below).
+
+export type Plan = "trial" | "basic" | "advanced" | "premium";
+
+export const CREDIT_USD = 0.01; // 1 credit ~= $0.01 (aligns well with Runway docs)
+export const TRIAL_DAYS = 7;
+
+// Daily caps (credits that refresh daily; separate from top-up balance)
+export const DAILY_CAP: Record<Plan, number> = {
+  trial: 30,
+  basic: 40,
+  advanced: 120,
+  premium: 300,
+};
+
+// Hourly request ceilings (server-side rate limiting)
+export const RATE_LIMIT_PER_HOUR: Record<Plan, number> = {
+  trial: 6,
+  basic: 10,
+  advanced: 50,
+  premium: 150,
+};
+
+// Queue priority
+export const PRIORITY_BY_PLAN: Record<Plan, boolean> = {
+  trial: false,
+  basic: false,
+  advanced: false,
+  premium: true,
+};
+
+// Feature availability by plan
+export const FEATURES_BY_PLAN: Record<Plan, Record<string, boolean>> = {
+  trial: {
+    image_to_image: true,
+    video_generation: false, // keep costs down during trial
+    hd_download: true,
+    "4k_download": false,
+    api_access: false,
+    priority_processing: false,
+  },
+  basic: {
+    image_to_image: true,
+    video_generation: false, // upsell to Advanced
+    hd_download: true,
+    "4k_download": false,
+    api_access: false,
+    priority_processing: false,
+  },
+  advanced: {
+    image_to_image: true,
+    video_generation: true, // constrained below
+    hd_download: true,
+    "4k_download": false,
+    api_access: true,
+    priority_processing: false,
+  },
+  premium: {
+    image_to_image: true,
+    video_generation: true,
+    hd_download: true,
+    "4k_download": true,
+    api_access: true,
+    priority_processing: true,
+  },
+};
+
+// Model-level constraints to cap your spend
+export const VIDEO_LIMITS = {
+  // runwayml/gen4-aleph: typical 5s @ 720p family. Keep strict to control cost.
+  maxSecondsByPlan: <Record<Plan, number>>{
+    trial: 0,
+    basic: 0,
+    advanced: 4,  // conservative
+    premium: 5,   // full Aleph window
+  },
+  // Only allow 720p family ARs Runway documents
+  allowedAspectRatios: ["16:9", "9:16", "1:1"] as const,
+  maxFpsByPlan: <Record<Plan, number>>{
+    trial: 0,
+    basic: 0,
+    advanced: 8,
+    premium: 12, // optional headroom
+  },
+};
+
+// Cost multipliers (fine-tune margin & risk per plan)
+export const PLAN_MULTIPLIER: Record<Plan, number> = {
+  trial: 1.0,
+  basic: 1.0,
+  advanced: 1.1, // small buffer for support/time
+  premium: 1.0,  // reward premium buyers
+};
+
+// Style tier surcharges (ties into your STYLE_DEFINITIONS[styleId].tier)
+export const STYLE_TIER_SURCHARGE: Record<"basic" | "advanced" | "premium", number> = {
+  basic: 0,        // no extra
+  advanced: 0.5,   // +50%
+  premium: 1.0,    // +100%
+};
+
+// ---- Credit calculators -----------------------------------------------------
+
+export type ImageEditCostInput = {
+  plan: Plan;
+  styleTier: "basic" | "advanced" | "premium";
+  // If you ever add batching: imageCount
+};
+
+export function costImageEdit_FluxKontextPro(input: ImageEditCostInput): number {
+  // Replicate shows ~$0.04 per image for flux-kontext-pro -> 4 credits baseline.
+  const base = 4;
+  const styleSurcharge = Math.ceil(base * STYLE_TIER_SURCHARGE[input.styleTier]);
+  const subtotal = base + styleSurcharge;
+  return Math.ceil(subtotal * PLAN_MULTIPLIER[input.plan]);
+}
+
+export type VideoEditCostInput = {
+  plan: Plan;
+  seconds: number;         // requested seconds after clamping
+  fps?: number;            // optional (if you let user choose)
+  aspectRatio?: "16:9" | "9:16" | "1:1";
+};
+
+export function clampVideoParams(input: VideoEditCostInput): Required<VideoEditCostInput> {
+  const maxS = VIDEO_LIMITS.maxSecondsByPlan[input.plan];
+  const seconds = Math.min(input.seconds, maxS);
+  const fps = Math.min(input.fps ?? 8, VIDEO_LIMITS.maxFpsByPlan[input.plan]);
+  const aspectRatio = (VIDEO_LIMITS.allowedAspectRatios.includes((input.aspectRatio as any)) ? input.aspectRatio : "16:9") as "16:9";
+  return { plan: input.plan, seconds, fps, aspectRatio };
+}
+
+export function costVideoEdit_Gen4Aleph(input: VideoEditCostInput): number {
+  // Replicate lists gen4-aleph around $0.18/sec -> 18 credits/sec baseline.
+  const { plan, seconds } = clampVideoParams(input);
+  const basePerSec = 18;
+  const raw = basePerSec * seconds;
+  return Math.ceil(raw * PLAN_MULTIPLIER[plan]);
+}
+
+// Optional add-ons
+export const ADDON_CREDITS = {
+  hd_download: 2,
+  "4k_download": 8, // image downloads; keep separate from video
+};
+
+// Master dispatcher (used by your enforce middleware)
+export function getCreditCost(featureKey: string, payload: any): number {
+  switch (featureKey) {
+    case "image_to_image":
+      return costImageEdit_FluxKontextPro({
+        plan: payload.plan as Plan,
+        styleTier: payload.styleTier, // derive from STYLE_DEFINITIONS[payload.styleId].tier
+      });
+    case "video_generation":
+      return costVideoEdit_Gen4Aleph({
+        plan: payload.plan as Plan,
+        seconds: Number(payload.seconds ?? 0),
+        fps: Number(payload.fps ?? 8),
+        aspectRatio: payload.aspectRatio ?? "16:9",
+      });
+    case "hd_download":
+      return ADDON_CREDITS.hd_download;
+    case "4k_download":
+      return ADDON_CREDITS["4k_download"];
+    default:
+      return 0;
+  }
+}

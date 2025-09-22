@@ -11,38 +11,10 @@ import { VideoPlayer } from './VideoPlayer';
 // --- Exact enums from the model schema ---
 // See: https://replicate.com/flux-kontext-apps/face-to-many-kontext (API/Schema)
 const STYLE_ENUM = [
-  'Anime',
-  'Cartoon',
-  'Clay',
-  'Gothic',
-  'Graphic Novel',
-  'Lego',
-  'Memoji',
-  'Minecraft',
-  'Minimalist',
-  'Pixel Art',
-  'Random',
-  'Simpsons',
-  'Sketch',
-  'South Park',
-  'Toy',
-  'Watercolor',
+  'Anime', 'Cartoon', 'Clay', 'Gothic', 'Graphic Novel', 'Lego', 'Memoji', 'Minecraft', 'Minimalist', 'Pixel Art', 'Random', 'Simpsons', 'Sketch', 'South Park', 'Toy', 'Watercolor',
 ] as const;
 
-const PERSONA_ENUM = [
-  'Angel',
-  'Astronaut',
-  'Demon',
-  'Mage',
-  'Ninja',
-  "Navi",
-  'None',
-  'Random',
-  'Robot',
-  'Samurai',
-  'Vampire',
-  'Werewolf',
-  'Zombie',
+const PERSONA_ENUM = [  'Angel', 'Astronaut', 'Demon',  'Mage', 'Ninja', "Navi", 'None', 'Random', 'Robot', 'Samurai',  'Vampire', 'Werewolf', 'Zombie',
 ] as const;
 
 type StyleEnum = (typeof STYLE_ENUM)[number];
@@ -83,7 +55,7 @@ const TransformationControls: React.FC = () => {
   const [gen4AlephDuration, setGen4AlephDuration] = useState<number>(3); // Default 3 seconds, max 5
   
   // Selected options for character transformation
-  const [selectedStyle, setSelectedStyle] = useState<StyleEnum>('Random');
+  const [selectedStyle, setSelecatedStyle] = useState<StyleEnum>('Random');
   const [selectedPersona, setSelectedPersona] = useState<PersonaEnum>('Random');
   
   // Options for text-guided transformation (FLUX.1 Kontext Pro)
