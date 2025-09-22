@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
 import Replicate from "replicate";
 import { storage, fileStorage } from "../storage";
-import { OperationStatus, FluxKontextProOptions } from "../../shared/types";
-import { FluxKontextProRequestSchema } from "../../shared/schema";
+import { OperationStatus, FluxKontextProOptions, Gen4AlephOptions } from "../../shared/types";
+import { FluxKontextProRequestSchema, Gen4AlephRequestSchema } from "../../shared/schema";
 import fetch from "node-fetch";
 
 if (!process.env.REPLICATE_API_TOKEN) {
@@ -545,6 +545,258 @@ export async function generateVideoHandler(req: Request, res: Response) {
     return res.status(500).json({ 
       success: false, 
       error: "Internal server error during video generation" 
+    });
+  }
+}
+
+/** 
+ * Generate video using Runway Gen4-Aleph model for in-context video editing
+ * Returns: { success, outputUrl, operationId, model, meta }
+ */
+export async function gen4AlephHandler(req: Request, res: Response) {
+  try {
+    console.log("🎬 Starting Gen4-Aleph video generation");
+    
+    // Validate request body
+    const validation = Gen4AlephRequestSchema.safeParse(req.body);
+    if (!validation.success) {
+      console.error("❌ Invalid Gen4-Aleph request format:", validation.error.errors);
+      return res.status(400).json({ 
+        success: false, 
+        error: `Invalid request: ${validation.error.errors.map(e => e.message).join(", ")}` 
+      });
+    }
+
+    const { video, options } = validation.data;
+    
+    if (!options.prompt || options.prompt.trim().length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Prompt is required for Gen4-Aleph video generation" 
+      });
+    }
+
+    // Validate and enforce video duration limits (max 5 seconds)
+    if (options.clipSeconds && options.clipSeconds > 5) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Video duration cannot exceed 5 seconds for cost control" 
+      });
+    }
+
+    // Convert video data URL to accessible URL if needed
+    let videoUrl = video;
+    let originalFileName = `gen4_input_${Date.now()}.mp4`;
+    
+    if (video.startsWith('data:')) {
+      try {
+        // Extract and save video data to storage for Replicate access
+        const base64Data = video.split(',')[1];
+        const buffer = Buffer.from(base64Data, 'base64');
+        const savedFile = await fileStorage.saveFile(
+          buffer,
+          originalFileName,
+          'video/mp4',
+          req.user?.id
+        );
+        
+        const protocol = req.protocol || 'http';
+        const host = req.get('host') || 'localhost';
+        videoUrl = `${protocol}://${host}${savedFile.url}`;
+        
+        console.log(`📼 Video saved to storage: ${videoUrl}`);
+      } catch (error) {
+        console.error('❌ Failed to save input video:', error);
+        return res.status(500).json({ 
+          success: false, 
+          error: "Failed to process video input" 
+        });
+      }
+    }
+
+    // Prepare input for Gen4-Aleph model according to Runway's schema
+    const input = {
+      prompt: options.prompt.trim(),
+      video: videoUrl, // Always use accessible URL
+      aspect_ratio: options.aspectRatio ?? "16:9",
+      ...(options.seed !== undefined && { seed: options.seed }),
+      ...(options.referenceImage && { reference_image: options.referenceImage }),
+      ...(options.clipSeconds && { duration: Math.min(options.clipSeconds, 5) }), // Enforce max 5s
+    };
+
+    console.log("🎬 Gen4-Aleph input:", { 
+      prompt: input.prompt, 
+      aspect_ratio: input.aspect_ratio,
+      seed: input.seed,
+      duration: input.duration,
+      hasReferenceImage: !!input.reference_image,
+      videoUrl: videoUrl
+    });
+
+    // Create prediction with pinned Gen4-Aleph model version
+    const prediction = await replicate.predictions.create({
+      model: "runwayml/gen4-aleph@latest", // Pin to latest stable version
+      input,
+    });
+
+    console.log(`🔄 Gen4-Aleph prediction created: ${prediction.id}`);
+
+    operationStore.set(prediction.id, {
+      id: prediction.id,
+      type: "video",
+      status: "processing",
+      createdAt: new Date(),
+      input,
+      userId: req.user?.id,
+      model: "gen4-aleph",
+    });
+
+    // Poll until done (Gen4-Aleph can take 1-3 minutes)
+    let finalPrediction = prediction;
+    const start = Date.now();
+    const timeoutMs = 300_000; // 5 minutes timeout
+
+    while (finalPrediction.status === "starting" || finalPrediction.status === "processing") {
+      if (Date.now() - start > timeoutMs) {
+        return res.status(408).json({
+          success: false,
+          error: "Video generation timed out. Please try again.",
+          operationId: prediction.id,
+          model: "gen4-aleph",
+        });
+      }
+      await sleep(3000); // Check every 3 seconds
+      finalPrediction = await replicate.predictions.get(prediction.id);
+      console.log("📊 Gen4-Aleph prediction status:", finalPrediction.status);
+    }
+
+    if (finalPrediction.status !== "succeeded") {
+      const error = (finalPrediction as any).error || "Gen4-Aleph video generation failed";
+      console.error("❌ Gen4-Aleph generation failed:", error);
+      operationStore.set(prediction.id, {
+        id: prediction.id,
+        type: "video",
+        status: "failed",
+        error,
+        createdAt: new Date(),
+        failedAt: new Date(),
+        model: "gen4-aleph",
+      });
+      return res.status(500).json({ 
+        success: false, 
+        error, 
+        operationId: prediction.id,
+        model: "gen4-aleph"
+      });
+    }
+
+    // Extract output URL (Gen4-Aleph returns a single video URL)
+    let outputVideoUrl: string;
+    if (typeof finalPrediction.output === 'string') {
+      outputVideoUrl = finalPrediction.output;
+    } else if (Array.isArray(finalPrediction.output) && finalPrediction.output.length > 0) {
+      outputVideoUrl = finalPrediction.output[0];
+    } else {
+      console.error('❌ Invalid Gen4-Aleph output format:', finalPrediction.output);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Invalid output format from Gen4-Aleph service', 
+        operationId: prediction.id,
+        model: "gen4-aleph"
+      });
+    }
+
+    console.log(`✅ Gen4-Aleph generated video: ${outputVideoUrl}`);
+
+    // Download & store video locally for persistent access
+    let localVideoUrl: string;
+    try {
+      const resp = await fetch(outputVideoUrl);
+      if (!resp.ok) {
+        throw new Error(`Failed to download video: ${resp.status} ${resp.statusText}`);
+      }
+      
+      const buf = Buffer.from(await resp.arrayBuffer());
+      
+      const stored = await fileStorage.saveFile(
+        buf,
+        `gen4_video_${prediction.id}.mp4`,
+        "video/mp4",
+        req.user?.id
+      );
+      const protocol = req.protocol || 'http';
+      const host = req.get('host') || 'localhost';
+      localVideoUrl = `${protocol}://${host}${stored.url}`;
+      
+      console.log(`💾 Gen4-Aleph video persisted: ${localVideoUrl}`);
+    } catch (e) {
+      console.error("❌ Failed to persist Gen4-Aleph video:", e);
+      return res.status(500).json({ 
+        success: false, 
+        error: "Failed to save generated video", 
+        operationId: prediction.id,
+        model: "gen4-aleph"
+      });
+    }
+
+    const completedAt = new Date();
+    const predictTime = completedAt.getTime() - start;
+
+    operationStore.set(prediction.id, {
+      id: prediction.id,
+      type: "video",
+      status: "completed",
+      result: localVideoUrl,
+      createdAt: new Date(),
+      completedAt,
+      model: "gen4-aleph",
+    });
+
+    // Save video generation record to database if user is authenticated
+    if (req.user) {
+      try {
+        await storage.createTransformation({
+          userId: req.user.id,
+          type: 'video',
+          status: 'completed',
+          originalFileName,
+          originalFileUrl: videoUrl, // Use the processed video URL
+          transformationOptions: JSON.stringify({
+            model: 'gen4-aleph',
+            prompt: input.prompt,
+            aspect_ratio: input.aspect_ratio,
+            seed: input.seed,
+            reference_image: input.reference_image,
+            duration: input.duration,
+          }),
+          resultFileUrls: [localVideoUrl],
+        });
+        console.log(`💾 Gen4-Aleph video generation saved for user: ${req.user.username}`);
+      } catch (error) {
+        console.error('Error saving Gen4-Aleph generation to database:', error);
+        // Don't fail the operation if database save fails
+      }
+    }
+
+    // Return successful response with standardized format
+    return res.json({
+      success: true,
+      outputUrl: localVideoUrl, // Ensure this matches client expectations
+      operationId: prediction.id,
+      model: "gen4-aleph",
+      meta: {
+        predictTime,
+        version: "gen4-aleph@latest",
+        duration: input.duration,
+        originalInputUrl: videoUrl,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error in Gen4-Aleph handler:", error);
+    return res.status(500).json({ 
+      success: false, 
+      error: "Internal server error during Gen4-Aleph video generation",
+      model: "gen4-aleph"
     });
   }
 }

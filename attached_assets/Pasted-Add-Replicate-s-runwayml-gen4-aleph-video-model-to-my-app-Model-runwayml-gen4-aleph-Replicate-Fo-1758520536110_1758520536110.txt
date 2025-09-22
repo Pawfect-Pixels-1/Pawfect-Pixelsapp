@@ -1,0 +1,59 @@
+Add Replicate’s runwayml/gen4-aleph video model to my app
+
+Model: runwayml/gen4-aleph (Replicate)
+Follow the model’s API + inputs exactly. Key fields include prompt (string), video (URL), aspect_ratio (default "16:9"), seed (integer), and reference_image (URL). The input video must be < 16 MB and only the first ~5 seconds are used by the model. Also, the model description emphasizes in-context video editing/generation and supports object/scene changes guided by text and optional reference images. Include Runway’s UI attribution “Powered by Runway” linking to runwayml.com somewhere visible in our product.  ￼
+
+What to build
+
+1) Shared schemas & types
+	•	In packages/shared/src/types.ts, add:
+	•	Gen4AlephOptions:
+	•	prompt: string
+	•	aspectRatio?: "16:9" | "9:16" | "1:1" | "4:3" | "3:4" (keep extensible)
+	•	seed?: number
+	•	referenceImage?: string // URL
+	•	clipSeconds?: number // ≤ 5; server will enforce
+	•	Extend VideoGenerationRequest to allow model: "gen4-aleph" and options?: Gen4AlephOptions.
+	•	Extend TransformationResponse (or create VideoGenerationResponse) to include:
+	•	outputUrl: string
+	•	meta?: { predictTime?: number; version?: string }
+	•	previewGifUrl?: string (optional, if we transcode)
+	•	In packages/shared/src/schema.ts:
+	•	gen4AlephOptionsSchema mirroring the above (Zod).
+	•	Update unions so "gen4-aleph" is valid for video model.
+
+2) Credit & style registry
+	•	In packages/shared/src/creditSystem.ts add:
+    STYLE_DEFINITIONS["gen4-aleph"] = {
+  id: "gen4-aleph",
+  name: "Runway Gen-4 Aleph",
+  tier: "premium",
+  estimatedCredits: 8, // adjustable
+  category: "Video Generation & Editing",
+  description: "In-context video editing & generation with text prompts and optional reference images."
+};
+
+Ensure getCreditCost, hasStyleAccess, getStyleTier include this entry.
+
+3) Replicate client
+	•	server/lib/replicate.ts: singleton client using REPLICATE_API_TOKEN (throw if missing). Use the official Replicate API style for Node (replicate.run(...)).  ￼
+
+4) Video route (server)
+	•	Add routes/video/gen4Aleph.ts with:
+	•	Auth: require req.session.userId.
+	•	Credits: check access & sufficient credits for "gen4-aleph".
+	•	Upload ingestion:
+	•	Accept multipart (video file) + JSON options, or JSON with video as URL.
+	•	Persist upload to object storage; obtain a public, HTTPS URL for Replicate’s video input.
+	•	If duration > clipSeconds or > 5s, trim to 5s with ffmpeg (server-side) before upload to stay under model constraints. (Model uses only the first ≈5s.)  ￼
+	•	Validation:
+	•	Zod-validate gen4AlephOptionsSchema.
+	•	Enforce size < 16MB (reject earlier or transcode to fit).  ￼
+	•	Replicate call: const input = {
+  prompt: options.prompt,
+  video: publicVideoUrl,                 // HTTPS URL
+  aspect_ratio: options.aspectRatio ?? "16:9",
+  seed: options.seed,
+  reference_image: options.referenceImage,
+};
+const output = await replicate.run("runwayml/gen4-aleph", { input });

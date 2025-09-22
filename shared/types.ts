@@ -65,6 +65,22 @@ export interface VideoGenerationRequest {
   };
 }
 
+/** Gen4-Aleph video model specific options */
+export interface Gen4AlephOptions {
+  prompt: string;                    // required - text description for video transformation
+  aspectRatio?: "16:9" | "9:16" | "1:1" | "4:3" | "3:4";  // default "16:9"
+  seed?: number;
+  referenceImage?: string;           // URL to reference image
+  clipSeconds?: number;              // ≤ 5; server will enforce
+}
+
+/** Gen4-Aleph video generation request format */
+export interface Gen4AlephRequest {
+  /** video file as data URL or https URL */
+  video: string;
+  options: Gen4AlephOptions;
+}
+
 /** Transform response now returns ALL image URLs */
 export interface TransformationResponse {
   success: boolean;
@@ -80,11 +96,20 @@ export interface TransformationResponse {
   };
 }
 
+/** Video generation response for Gen4-Aleph and other video models */
 export interface VideoGenerationResponse {
   success: boolean;
-  videoUrl?: string;
+  videoUrl?: string;             // legacy field
+  outputUrl?: string;            // new field for Gen4-Aleph
   operationId?: string;
   error?: string;
+  model?: string;                // which model was used
+  meta?: {
+    predictTime?: number;
+    version?: string;
+    duration?: number;
+  };
+  previewGifUrl?: string;        // optional preview GIF
 }
 
 /** Operation status now supports array results (images) */

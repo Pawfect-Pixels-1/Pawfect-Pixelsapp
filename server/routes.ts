@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { transformImageHandler, fluxKontextProHandler, generateVideoHandler, getStatusHandler } from "./services/replicate";
+import { transformImageHandler, fluxKontextProHandler, generateVideoHandler, gen4AlephHandler, getStatusHandler } from "./services/replicate";
 import { realtimeTransformImageHandler, setRealtimeService } from "./services/realtime-transform.js";
 import { uploadMiddleware } from "./middleware/upload";
 import { registerHandler, loginHandler, logoutHandler, getCurrentUserHandler, requireAuth, optionalAuth } from "./auth";
@@ -31,6 +31,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Video generation endpoint (requires authentication)
   app.post("/api/generate-video", requireAuth, uploadMiddleware, generateVideoHandler);
+  
+  // Gen4-Aleph video generation endpoint (requires authentication)
+  app.post("/api/video/gen4-aleph", requireAuth, uploadMiddleware, gen4AlephHandler);
   
   // Status polling endpoint for long-running operations
   app.get("/api/status/:operationId", getStatusHandler);

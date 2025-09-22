@@ -1,0 +1,61 @@
+•	Persist the returned output video URL (download & store or store URL per our pattern).
+	•	Capture metrics if present (e.g., predict time) and include in response. Inputs/outputs must match the model’s schema exactly.  ￼
+
+	•	Response: { success: true, outputUrl, meta }
+	•	Credits: deduct on success only; idempotent if client retries.
+
+5) Wire up endpoints
+	•	In routes.ts mount POST /api/video/gen4-aleph → the handler.
+	•	Respect existing middleware (multer, upload validation, session, rate-limit).
+
+6) Frontend
+	•	StylePicker / Video tab:
+	•	Add a card for “Runway Gen-4 Aleph” under Video Generation & Editing with premium lock if needed.
+	•	Hook useGen4Aleph():
+	•	Accepts file | URL and Gen4AlephOptions.
+	•	Forms FormData when uploading a file; otherwise JSON.
+	•	Calls /api/video/gen4-aleph and returns { outputUrl, meta }.
+	•	UI/UX:
+	•	Inputs for Prompt, Aspect Ratio, optional Reference Image URL, Seed.
+	•	Show helper text: “First 5 seconds are used; keep clip short for best results.”  ￼
+	•	Display “Powered by Runway” (link to runwayml.com) near results as required.  ￼
+
+7) Storage & processing
+	•	Use existing ObjectStorageService:
+	•	Save source to a public URL for Replicate.
+	•	Save output video as public (or private with signed URL per existing pattern).
+	•	Optional: generate a lightweight preview GIF/MP4 for faster gallery playback.
+
+8) Tests (Vitest / RTL)
+	•	Server unit:
+	•	Zod schema validation (valid/invalid options).
+	•	Rejects >16MB, enforces ≤5s trim, 401 when unauthenticated.
+	•	Mocks Replicate; asserts correct input mapping (prompt, video, aspect_ratio, seed, reference_image) and token presence.  ￼
+	•	Integration:
+	•	Happy-path: small MP4 + prompt → output saved + credits deducted.
+	•	Frontend:
+	•	Feature gating for non-premium users.
+	•	Form submit → loading → renders playable result.
+
+9) Environment & config
+	•	Read REPLICATE_API_TOKEN on server only; fail fast if missing.
+	•	Update .env.example, Docker, Replit templates and boot checks.
+
+10) Documentation
+	•	Add a short MDX/README “How to use Gen-4 Aleph”:
+	•	What it does (in-context video editing/generation; object/scene/camera changes).  ￼
+	•	Inputs: prompt, video, aspect_ratio="16:9", optional seed, reference_image.  ￼
+	•	Limitations: first 5s used, <16MB video.  ￼
+	•	Add Runway attribution note.  ￼
+
+Acceptance criteria
+	•	✅ POST /api/video/gen4-aleph accepts a video + prompt, validates options, trims to ≤5s if needed, and calls Replicate with the model’s exact input names; returns a persisted outputUrl.  ￼
+	•	✅ Credits are enforced/deducted; premium gating works.
+	•	✅ New style appears in the picker; UX shows attribution “Powered by Runway”.  ￼
+	•	✅ Unit + integration tests pass; CI green.
+	•	✅ Env & docs updated; missing token fails on boot.
+
+References (use these to match parameters & behavior)
+	•	Model API for runwayml/gen4-aleph (inputs: prompt, video, aspect_ratio, seed, reference_image; 16MB limit; ~5s used; default aspect ratio 16:9).  ￼
+	•	Model page/API hub for gen4-aleph (usage with Replicate Node client).  ￼
+	•	Model README (capabilities + attribution requirement)

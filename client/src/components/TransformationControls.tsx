@@ -4,6 +4,7 @@ import { Wand2, Video, Sparkles, Palette, Zap, Clock } from 'lucide-react';
 // Store + API
 import { useTransformation } from '../lib/stores/useTransformation';
 import { transformImage, transformImageWithFluxKontext, generateVideo, pollOperationStatus, FluxKontextProOptions, FluxAspectRatio, FluxOutputFormat } from '../lib/replicate';
+import { generateVideoWithGen4Aleph, useGen4Aleph } from '../lib/gen4-aleph';
 import { RealtimeTransformModal } from './RealtimeTransformModal';
 import { VideoPlayer } from './VideoPlayer';
 
@@ -48,7 +49,7 @@ type StyleEnum = (typeof STYLE_ENUM)[number];
 type PersonaEnum = (typeof PERSONA_ENUM)[number];
 
 // Transformation mode type
-type TransformationMode = 'character' | 'text-guided';
+type TransformationMode = 'character' | 'text-guided' | 'video-gen4-aleph';
 
 
 const iconFor = (label: string) => {
@@ -72,6 +73,14 @@ const TransformationControls: React.FC = () => {
 
   // Transformation mode state
   const [transformationMode, setTransformationMode] = useState<TransformationMode>('character');
+  
+  // Video upload state for Gen4-Aleph
+  const [uploadedVideo, setUploadedVideo] = useState<string | null>(null);
+  
+  // Gen4-Aleph video editing state
+  const [gen4AlephPrompt, setGen4AlephPrompt] = useState<string>('');
+  const [gen4AlephAspectRatio, setGen4AlephAspectRatio] = useState<'16:9' | '9:16' | '1:1' | '4:3' | '3:4'>('16:9');
+  const [gen4AlephDuration, setGen4AlephDuration] = useState<number>(3); // Default 3 seconds, max 5
   
   // Selected options for character transformation
   const [selectedStyle, setSelectedStyle] = useState<StyleEnum>('Random');
@@ -109,7 +118,7 @@ const TransformationControls: React.FC = () => {
       setIsProcessing(true);
       setCurrentOperation('transform');
 
-      let urls: string[];
+      let urls: string[] = [];
 
       if (transformationMode === 'character') {
         // Character transformation using original Kontext model
@@ -127,7 +136,7 @@ const TransformationControls: React.FC = () => {
             safety_tolerance: 2,
           }
         );
-      } else {
+      } else if (transformationMode === 'text-guided') {
         // Text-guided transformation using FLUX.1 Kontext Pro
         if (!fluxPrompt.trim()) {
           throw new Error('Please enter a transformation prompt');
@@ -142,6 +151,31 @@ const TransformationControls: React.FC = () => {
             safety_tolerance: 2,
           }
         );
+      } else if (transformationMode === 'video-gen4-aleph') {
+        // Gen4-Aleph video editing
+        if (!uploadedVideo) {
+          throw new Error('Please upload a video first');
+        }
+        if (!gen4AlephPrompt.trim()) {
+          throw new Error('Please enter a video editing prompt');
+        }
+
+        const result = await generateVideoWithGen4Aleph(
+          uploadedVideo,
+          gen4AlephPrompt,
+          {
+            aspectRatio: gen4AlephAspectRatio,
+            clipSeconds: gen4AlephDuration,
+          }
+        );
+
+        console.log('✅ Gen4-Aleph video editing complete:', result.outputUrl);
+        setGeneratedVideo(result.outputUrl);
+        
+        // Return early since we're handling video, not image transformations
+        setIsProcessing(false);
+        setCurrentOperation(null);
+        return;
       }
 
       console.log(`✅ ${transformationMode} transform complete, received URLs:`, urls);
@@ -273,7 +307,7 @@ const TransformationControls: React.FC = () => {
               <Sparkles className="w-4 h-4 mr-2" />
               Transformation Mode
             </h3>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={() => setTransformationMode('character')}
                 disabled={isProcessing}
@@ -309,6 +343,25 @@ const TransformationControls: React.FC = () => {
                   <div>
                     <span className="text-sm font-medium">Text-Guided</span>
                     <div className="text-xs text-gray-600">Custom text prompts</div>
+                  </div>
+                </div>
+              </button>
+              <button
+                onClick={() => setTransformationMode('video-gen4-aleph')}
+                disabled={isProcessing}
+                className={`
+                  p-3 rounded-lg border-2 text-left transition-all font-medium
+                  ${transformationMode === 'video-gen4-aleph'
+                    ? 'bg-[#c6c2e6] border-[#c6c2e6] text-black shadow-[4px_4px_0px_0px_#000000]'
+                    : 'bg-white border-gray-300 text-black hover:border-[#c6c2e6] hover:bg-[#c6c2e6]/10'}
+                  ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                `}
+              >
+                <div className="flex items-center">
+                  <Video className="w-4 h-4 mr-2" />
+                  <div>
+                    <span className="text-sm font-medium">Video Editing</span>
+                    <div className="text-xs text-gray-600">AI video editing with Gen4-Aleph</div>
                   </div>
                 </div>
               </button>
@@ -433,6 +486,103 @@ const TransformationControls: React.FC = () => {
               </>
             )}
 
+            {/* Gen4-Aleph Video Editing Section */}
+            {transformationMode === 'video-gen4-aleph' && (
+              <div className="space-y-3">
+                <h3 className="font-semibold text-black flex items-center">
+                  <Video className="w-4 h-4 mr-2" />
+                  Video Upload & Editing
+                </h3>
+                
+                {/* Video Upload */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-black">Upload Video</label>
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          setUploadedVideo(event.target?.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    disabled={isProcessing}
+                    className="w-full p-2 border rounded-lg text-black"
+                  />
+                  {uploadedVideo && (
+                    <div className="mt-2">
+                      <video
+                        src={uploadedVideo}
+                        controls
+                        className="w-full max-h-32 rounded-lg border"
+                      >
+                        Your browser does not support the video tag.
+                      </video>
+                    </div>
+                  )}
+                </div>
+
+                {/* Editing Prompt */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-black">Video Editing Prompt</label>
+                  <textarea
+                    value={gen4AlephPrompt}
+                    onChange={(e) => setGen4AlephPrompt(e.target.value)}
+                    placeholder="Describe how you want to edit or transform the video..."
+                    disabled={isProcessing}
+                    rows={3}
+                    className="w-full p-3 border rounded-lg text-black resize-none"
+                  />
+                </div>
+
+                {/* Aspect Ratio */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-black">Aspect Ratio</label>
+                  <select
+                    value={gen4AlephAspectRatio}
+                    onChange={(e) => setGen4AlephAspectRatio(e.target.value as typeof gen4AlephAspectRatio)}
+                    disabled={isProcessing}
+                    className="w-full p-2 border rounded-lg text-black"
+                  >
+                    <option value="16:9">16:9 (Widescreen)</option>
+                    <option value="9:16">9:16 (Vertical)</option>
+                    <option value="1:1">1:1 (Square)</option>
+                    <option value="4:3">4:3 (Standard)</option>
+                    <option value="3:4">3:4 (Portrait)</option>
+                  </select>
+                </div>
+
+                {/* Duration Control */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-black">
+                    Duration (seconds) - Max 5 seconds for cost control
+                  </label>
+                  <input
+                    type="range"
+                    min="1"
+                    max="5"
+                    step="1"
+                    value={gen4AlephDuration}
+                    onChange={(e) => setGen4AlephDuration(parseInt(e.target.value))}
+                    disabled={isProcessing}
+                    className="w-full"
+                  />
+                  <div className="text-center text-sm text-gray-600">
+                    {gen4AlephDuration} second{gen4AlephDuration !== 1 ? 's' : ''}
+                  </div>
+                </div>
+
+                {/* Runway Attribution */}
+                <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                  Powered by Runway Gen4-Aleph for advanced AI video editing
+                </div>
+              </div>
+            )}
+
             {/* Transform Buttons */}
             <div className="space-y-3">
               {transformationMode === 'character' && (
@@ -451,17 +601,25 @@ const TransformationControls: React.FC = () => {
               {/* Transform Button */}
               <button
                 onClick={handleTransform}
-                disabled={isProcessing || (transformationMode === 'text-guided' && !fluxPrompt.trim())}
+                disabled={
+                  isProcessing || 
+                  (transformationMode === 'text-guided' && !fluxPrompt.trim()) ||
+                  (transformationMode === 'video-gen4-aleph' && (!uploadedVideo || !gen4AlephPrompt.trim()))
+                }
                 className="w-full bg-[#c6c2e6] text-black py-3 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-[4px_4px_0px_0px_#000000] disabled:hover:translate-x-0 disabled:hover:translate-y-0"
               >
                 <div className="flex items-center justify-center">
                   {transformationMode === 'character' ? (
                     <Clock className="w-4 h-4 mr-2" />
+                  ) : transformationMode === 'video-gen4-aleph' ? (
+                    <Video className="w-4 h-4 mr-2" />
                   ) : (
                     <Wand2 className="w-4 h-4 mr-2" />
                   )}
-                  {isProcessing ? 'Transforming...' : 
-                   transformationMode === 'character' ? 'Regular Transform' : 'Text-Guided Transform'}
+                  {isProcessing ? 'Processing...' : 
+                   transformationMode === 'character' ? 'Regular Transform' : 
+                   transformationMode === 'video-gen4-aleph' ? 'Edit Video with AI' :
+                   'Text-Guided Transform'}
                 </div>
               </button>
             </div>

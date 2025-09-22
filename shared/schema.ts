@@ -207,6 +207,20 @@ export const FluxKontextProRequestSchema = z.object({
   options: FluxKontextProOptionsSchema,
 });
 
+// Zod validation for Gen4-Aleph video generation options
+export const Gen4AlephOptionsSchema = z.object({
+  prompt: z.string().min(1, "Prompt is required"),
+  aspectRatio: z.enum(["16:9", "9:16", "1:1", "4:3", "3:4"]).default("16:9"),
+  seed: z.number().int().optional(),
+  referenceImage: z.string().url().optional(),
+  clipSeconds: z.number().min(0.1).max(5).optional(),
+});
+
+export const Gen4AlephRequestSchema = z.object({
+  video: z.string().min(1, "Video is required"), // data: URI OR https URL
+  options: Gen4AlephOptionsSchema,
+});
+
 /** Server response (image transform) */
 export const TransformationResponseSchema = z.object({
   success: z.boolean(),
@@ -265,3 +279,7 @@ export type TransformationResponse = z.infer<typeof TransformationResponseSchema
 export type VideoGenerationResponse = z.infer<typeof VideoGenerationResponseSchema>;
 export type OperationStatus = z.infer<typeof OperationStatusSchema>;
 export type StatusResponse = z.infer<typeof StatusResponseSchema>;
+
+// Gen4-Aleph exports
+export type Gen4AlephOptions = z.infer<typeof Gen4AlephOptionsSchema>;
+export type Gen4AlephRequest = z.infer<typeof Gen4AlephRequestSchema>;
