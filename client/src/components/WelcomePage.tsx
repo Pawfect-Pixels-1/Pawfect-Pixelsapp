@@ -200,4 +200,33 @@ export default function WelcomePage() {
               </CardContent>
             </Card>
           </motion.div>
-        )
+        )}
+      </AnimatePresence>
+
+      {/* Main content */}
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50">
+        <div className="container mx-auto px-4 py-8">
+          <div className="text-center">
+            <h1 className="text-4xl font-bold mb-4">Welcome to the Game!</h1>
+            <p className="text-lg text-gray-600 mb-8">Experience amazing adventures in our immersive world.</p>
+            
+            <div className="flex gap-4 justify-center">
+              <Button onClick={openLogin} variant="secondary" className="border-2 border-black shadow-[4px_4px_0_#000]">
+                Sign In
+              </Button>
+              <Button onClick={openRegister} className="bg-emerald-500 hover:bg-emerald-600 border-2 border-black shadow-[4px_4px_0_#000]">
+                Get Started
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <AuthDialog 
+        open={showAuthDialog} 
+        onOpenChange={setShowAuthDialog} 
+        mode={authMode} 
+      />
+    </>
+  );
+}
