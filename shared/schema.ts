@@ -47,10 +47,47 @@ export const userFiles = pgTable("user_files", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+/** ───────────────────────────────────────────────────────────
+ *  DB: share_links - Public shareable links for generated content
+ *  ─────────────────────────────────────────────────────────── */
+export const shareLinks = pgTable("share_links", {
+  id: varchar("id", { length: 36 }).primaryKey(), // UUID
+  userId: integer("user_id").references(() => users.id).notNull(),
+  contentUrl: text("content_url").notNull(),
+  contentType: varchar("content_type", { length: 10 }).notNull(), // 'image' or 'video'
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/** ───────────────────────────────────────────────────────────
+ *  DB: share_events - Analytics for sharing activities
+ *  ─────────────────────────────────────────────────────────── */
+export const shareEvents = pgTable("share_events", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  contentUrl: text("content_url").notNull(),
+  contentType: varchar("content_type", { length: 10 }).notNull(), // 'image' or 'video'
+  platform: varchar("platform", { length: 20 }).notNull(), // 'twitter', 'facebook', 'linkedin', 'clipboard', 'download', etc.
+  title: text("title"),
+  description: text("description"),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   transformations: many(transformations),
   files: many(userFiles),
+  shareLinks: many(shareLinks),
+  shareEvents: many(shareEvents),
+}));
+
+export const shareLinksRelations = relations(shareLinks, ({ one }) => ({
+  user: one(users, { fields: [shareLinks.userId], references: [users.id] }),
+}));
+
+export const shareEventsRelations = relations(shareEvents, ({ one }) => ({
+  user: one(users, { fields: [shareEvents.userId], references: [users.id] }),
 }));
 
 export const transformationsRelations = relations(transformations, ({ one, many }) => ({
@@ -82,6 +119,8 @@ export const insertUserSchema = z.object({
 
 export const insertTransformationSchema = createInsertSchema(transformations);
 export const insertUserFileSchema = createInsertSchema(userFiles);
+export const insertShareLinkSchema = createInsertSchema(shareLinks);
+export const insertShareEventSchema = createInsertSchema(shareEvents);
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -89,6 +128,10 @@ export type Transformation = typeof transformations.$inferSelect;
 export type InsertTransformation = z.infer<typeof insertTransformationSchema>;
 export type UserFile = typeof userFiles.$inferSelect;
 export type InsertUserFile = z.infer<typeof insertUserFileSchema>;
+export type ShareLink = typeof shareLinks.$inferSelect;
+export type InsertShareLink = z.infer<typeof insertShareLinkSchema>;
+export type ShareEvent = typeof shareEvents.$inferSelect;
+export type InsertShareEvent = z.infer<typeof insertShareEventSchema>;
 
 /** ───────────────────────────────────────────────────────────
  *  Replicate Model: face-to-many-kontext — shared enums/schemas

@@ -2,7 +2,10 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../lib/stores/useAuth';
 import { Card } from './ui/card';
 import { VideoPlayer } from './VideoPlayer';
-import { Play, Image, Film, FileText, Calendar, ArrowUpDown } from 'lucide-react';
+import { ShareButton } from './ShareButton';
+import { useSharing } from '../lib/stores/useSharing';
+import { useServerAnalytics } from '../lib/hooks/useServerAnalytics';
+import { Play, Image, Film, FileText, Calendar, ArrowUpDown, Share2, BarChart3 } from 'lucide-react';
 
 interface Transformation {
   id: number;
@@ -31,8 +34,11 @@ export function UserDashboard() {
   const [transformations, setTransformations] = useState<Transformation[]>([]);
   const [files, setFiles] = useState<UserFile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'all' | 'images' | 'videos' | 'files'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'images' | 'videos' | 'files' | 'analytics'>('all');
   const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'type'>('date-desc');
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const { totalShares, getSharesByPlatform, getSharesByContentType } = useSharing();
+  const { data: serverAnalytics, isLoading: analyticsLoading } = useServerAnalytics();
   const [selectedVideo, setSelectedVideo] = useState<string>('');
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
 
@@ -208,10 +214,21 @@ export function UserDashboard() {
             <FileText className="w-4 h-4 mr-2" />
             All Files ({files.length})
           </button>
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={`px-4 py-2 font-semibold border-2 border-black rounded-lg transition-all flex items-center ${
+              activeTab === 'analytics'
+                ? 'bg-[#F59E0B] text-white shadow-[4px_4px_0px_0px_#000000]'
+                : 'bg-white text-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px]'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4 mr-2" />
+            Analytics ({serverAnalytics?.success ? serverAnalytics.analytics.totalShares : totalShares})
+          </button>
         </div>
 
         {/* Sort Controls */}
-        {activeTab !== 'files' && (
+        {activeTab !== 'files' && activeTab !== 'analytics' && (
           <div className="flex items-center gap-2">
             <ArrowUpDown className="w-4 h-4" />
             <select
@@ -228,7 +245,78 @@ export function UserDashboard() {
       </div>
 
       {/* Content */}
-      {activeTab !== 'files' && (
+      {activeTab === 'analytics' ? (
+        <div className="space-y-4">
+          <Card className="shadow-[8px_8px_0px_0px_#F59E0B] border-2 border-black">
+            <div className="p-6">
+              <h3 className="text-xl font-bold text-black mb-4">Sharing Analytics</h3>
+              
+              {analyticsLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin w-8 h-8 border-2 border-[#F59E0B] border-t-transparent rounded-full mx-auto mb-4"></div>
+                  <p className="text-lg text-gray-600">Loading analytics...</p>
+                </div>
+              ) : (serverAnalytics?.success ? serverAnalytics.analytics.totalShares : totalShares) === 0 ? (
+                <div className="text-center py-8">
+                  <Share2 className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-lg text-gray-600 mb-2">No shares yet</p>
+                  <p className="text-sm text-gray-500">Share your AI-generated content to see analytics here!</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Total Shares */}
+                  <div className="text-center bg-[#F59E0B] text-white p-4 rounded-lg border-2 border-black">
+                    <h4 className="text-3xl font-bold">
+                      {serverAnalytics?.success ? serverAnalytics.analytics.totalShares : totalShares}
+                    </h4>
+                    <p className="text-sm">Total Shares</p>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-6">
+                    {/* Platform Breakdown */}
+                    <div className="bg-gray-50 p-4 rounded-lg border-2 border-black">
+                      <h4 className="text-lg font-semibold text-black mb-3">By Platform</h4>
+                      <div className="space-y-2">
+                        {Object.entries(
+                          serverAnalytics?.success 
+                            ? serverAnalytics.analytics.sharesByPlatform 
+                            : getSharesByPlatform()
+                        ).map(([platform, count]) => (
+                          <div key={platform} className="flex justify-between items-center">
+                            <span className="capitalize text-sm font-medium">{platform}</span>
+                            <span className="bg-white px-2 py-1 rounded border border-black text-sm font-bold">
+                              {count}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Content Type Breakdown */}
+                    <div className="bg-gray-50 p-4 rounded-lg border-2 border-black">
+                      <h4 className="text-lg font-semibold text-black mb-3">By Content Type</h4>
+                      <div className="space-y-2">
+                        {Object.entries(
+                          serverAnalytics?.success 
+                            ? serverAnalytics.analytics.sharesByContentType 
+                            : getSharesByContentType()
+                        ).map(([type, count]) => (
+                          <div key={type} className="flex justify-between items-center">
+                            <span className="capitalize text-sm font-medium">{type}s</span>
+                            <span className="bg-white px-2 py-1 rounded border border-black text-sm font-bold">
+                              {count}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
+      ) : activeTab !== 'files' && (
         <div className="space-y-4">
           {filteredAndSortedTransformations.length === 0 ? (
             <Card className="shadow-[8px_8px_0px_0px_#F59E0B] border-2 border-black">
@@ -321,14 +409,23 @@ export function UserDashboard() {
                             />
                           )}
                         </div>
-                        <button
-                          onClick={() => downloadFile(url, transformation.type === 'video' 
-                            ? `video-${transformation.id}.mp4` 
-                            : `result-${transformation.id}-${index + 1}.png`)}
-                          className="w-full bg-[#10B981] text-white py-1 px-2 rounded text-sm font-medium border border-black hover:bg-[#059669] transition-colors"
-                        >
-                          Download {transformation.type === 'video' ? 'Video' : 'Image'}
-                        </button>
+                        <div className="flex gap-2">
+                          <ShareButton
+                            contentUrl={url}
+                            contentType={transformation.type === 'video' ? 'video' : 'image'}
+                            title={`Check out my AI-${transformation.type === 'video' ? 'generated video' : 'transformed portrait'}!`}
+                            description="Created with Portrait Studio"
+                            onShare={(platform) => console.log(`Shared ${transformation.type} result to ${platform}`)}
+                          />
+                          <button
+                            onClick={() => downloadFile(url, transformation.type === 'video' 
+                              ? `video-${transformation.id}.mp4` 
+                              : `result-${transformation.id}-${index + 1}.png`)}
+                            className="flex-1 bg-[#10B981] text-white py-1 px-2 rounded text-sm font-medium border border-black hover:bg-[#059669] transition-colors"
+                          >
+                            Download
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

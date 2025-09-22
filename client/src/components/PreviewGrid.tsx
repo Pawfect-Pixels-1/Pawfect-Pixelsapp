@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTransformation } from '../lib/stores/useTransformation';
 import { Eye, Download } from 'lucide-react';
+import { ShareButton } from './ShareButton';
 
 const PreviewGrid: React.FC = () => {
   const { 
@@ -60,18 +61,27 @@ const PreviewGrid: React.FC = () => {
                 <h3 className="text-sm font-semibold text-black uppercase tracking-wide">
                   Transformed
                 </h3>
-                <button
-                  onClick={() => {
-                    const link = document.createElement('a');
-                    link.href = transformedImage;
-                    link.download = 'transformed-portrait.png';
-                    link.click();
-                  }}
-                  className="p-1 bg-[#10B981] text-white rounded border border-black hover:bg-[#0D9488] transition-colors"
-                  title="Download transformed image"
-                >
-                  <Download className="w-3 h-3" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <ShareButton
+                    contentUrl={transformedImage}
+                    contentType="image"
+                    title="Check out my AI-transformed portrait!"
+                    description="Created with Portrait Studio's AI transformation"
+                    onShare={(platform) => console.log(`Shared transformed image to ${platform}`)}
+                  />
+                  <button
+                    onClick={() => {
+                      const link = document.createElement('a');
+                      link.href = transformedImage;
+                      link.download = 'transformed-portrait.png';
+                      link.click();
+                    }}
+                    className="p-1 bg-[#10B981] text-white rounded border border-black hover:bg-[#0D9488] transition-colors"
+                    title="Download transformed image"
+                  >
+                    <Download className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
               <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden border-2 border-black">
                 <img 
@@ -90,18 +100,27 @@ const PreviewGrid: React.FC = () => {
                 <h3 className="text-sm font-semibold text-black uppercase tracking-wide">
                   Video
                 </h3>
-                <button
-                  onClick={() => {
-                    const link = document.createElement('a');
-                    link.href = generatedVideo;
-                    link.download = 'generated-video.mp4';
-                    link.click();
-                  }}
-                  className="p-1 bg-[#F59E0B] text-white rounded border border-black hover:bg-[#D97706] transition-colors"
-                  title="Download generated video"
-                >
-                  <Download className="w-3 h-3" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <ShareButton
+                    contentUrl={generatedVideo}
+                    contentType="video"
+                    title="Check out my AI-generated video!"
+                    description="Created with Portrait Studio's AI video generation"
+                    onShare={(platform) => console.log(`Shared generated video to ${platform}`)}
+                  />
+                  <button
+                    onClick={() => {
+                      const link = document.createElement('a');
+                      link.href = generatedVideo;
+                      link.download = 'generated-video.mp4';
+                      link.click();
+                    }}
+                    className="p-1 bg-[#F59E0B] text-white rounded border border-black hover:bg-[#D97706] transition-colors"
+                    title="Download generated video"
+                  >
+                    <Download className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
               <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden border-2 border-black">
                 <video 

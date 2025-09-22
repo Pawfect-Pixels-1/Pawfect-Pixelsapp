@@ -1,4 +1,4 @@
-import { users, transformations, userFiles, type User, type InsertUser, type Transformation, type UserFile, type InsertTransformation, type InsertUserFile } from "@shared/schema";
+import { users, transformations, userFiles, shareLinks, shareEvents, type User, type InsertUser, type Transformation, type UserFile, type InsertTransformation, type InsertUserFile, type ShareLink, type InsertShareLink, type ShareEvent, type InsertShareEvent } from "@shared/schema";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import { eq, like } from "drizzle-orm";
@@ -10,7 +10,7 @@ import { Readable } from 'stream';
 
 // Initialize database connection
 const sql = neon(process.env.DATABASE_URL!);
-const db = drizzle(sql, { schema: { users, transformations, userFiles } });
+const db = drizzle(sql, { schema: { users, transformations, userFiles, shareLinks, shareEvents } });
 
 // App Storage client - enable Replit Object Storage
 let storageClient: Client | null = null;
@@ -61,6 +61,16 @@ export interface IStorage {
   createUserFile(file: InsertUserFile): Promise<UserFile>;
   getUserFiles(userId: number): Promise<UserFile[]>;
   deleteUserFile(id: number): Promise<boolean>;
+  // Share link methods
+  createShareLink(shareLink: InsertShareLink): Promise<ShareLink>;
+  getShareLink(id: string): Promise<ShareLink | undefined>;
+  // Share analytics methods
+  recordShareEvent(event: InsertShareEvent): Promise<ShareEvent>;
+  getShareAnalytics(userId: number): Promise<{
+    totalShares: number;
+    sharesByPlatform: Record<string, number>;
+    sharesByContentType: Record<string, number>;
+  }>;
 }
 
 // File storage interface for App Storage
@@ -127,6 +137,45 @@ export class DatabaseStorage implements IStorage {
       console.error(`❌ Failed to delete user file from database: ${error}`);
       throw new Error(`Failed to delete user file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  // Share link methods
+  async createShareLink(shareLink: InsertShareLink): Promise<ShareLink> {
+    const result = await db.insert(shareLinks).values(shareLink).returning();
+    return result[0];
+  }
+
+  async getShareLink(id: string): Promise<ShareLink | undefined> {
+    const result = await db.select().from(shareLinks).where(eq(shareLinks.id, id)).limit(1);
+    return result[0];
+  }
+
+  // Share analytics methods
+  async recordShareEvent(event: InsertShareEvent): Promise<ShareEvent> {
+    const result = await db.insert(shareEvents).values(event).returning();
+    return result[0];
+  }
+
+  async getShareAnalytics(userId: number): Promise<{
+    totalShares: number;
+    sharesByPlatform: Record<string, number>;
+    sharesByContentType: Record<string, number>;
+  }> {
+    const events = await db.select().from(shareEvents).where(eq(shareEvents.userId, userId));
+    
+    const sharesByPlatform: Record<string, number> = {};
+    const sharesByContentType: Record<string, number> = {};
+    
+    for (const event of events) {
+      sharesByPlatform[event.platform] = (sharesByPlatform[event.platform] || 0) + 1;
+      sharesByContentType[event.contentType] = (sharesByContentType[event.contentType] || 0) + 1;
+    }
+    
+    return {
+      totalShares: events.length,
+      sharesByPlatform,
+      sharesByContentType,
+    };
   }
 }
 
