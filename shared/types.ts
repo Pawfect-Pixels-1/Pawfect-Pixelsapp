@@ -17,10 +17,22 @@ export type AspectRatio =
 
 export type OutputFormat = "jpg" | "png";
 
+/** FLUX.1 Kontext Pro specific options for text-guided editing */
+export interface FluxKontextProOptions {
+  prompt: string;                    // required - text description of desired edit
+  aspect_ratio?: "match_input_image" | "1:1" | "16:9" | "4:3" | "3:4" | "9:16";
+  output_format?: "jpg" | "png" | "webp";
+  safety_tolerance?: 0 | 1 | 2 | 3 | 4 | 5;
+  seed?: number;
+  finetune_id?: string;
+}
+
 /** Matches our backend handler + model schema */
 export interface TransformationRequest {
   /** data:image/...;base64,... or https://... */
   image: string;
+  /** Model selector - determines which transformation engine to use */
+  model?: "face-to-many-kontext" | "flux-kontext-pro";
   /** optional UI tag; not required by model */
   style?: string;
   options?: {
@@ -35,6 +47,13 @@ export interface TransformationRequest {
     safety_tolerance?: 0 | 1 | 2;
     preserve_background?: boolean;
   };
+}
+
+/** FLUX.1 Kontext Pro specific request format */
+export interface FluxKontextProRequest {
+  /** data:image/...;base64,... or https://... */
+  image: string;
+  options: FluxKontextProOptions;
 }
 
 export interface VideoGenerationRequest {
@@ -53,6 +72,12 @@ export interface TransformationResponse {
   transformedImage?: string;     // first URL (legacy compat)
   operationId?: string;
   error?: string;
+  model?: string;                // which model was used
+  meta?: {                       // additional metadata
+    predictTime?: number;
+    imageCount?: number;
+    version?: string;
+  };
 }
 
 export interface VideoGenerationResponse {

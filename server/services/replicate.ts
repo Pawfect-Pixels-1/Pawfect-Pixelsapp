@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import Replicate from "replicate";
 import { storage, fileStorage } from "../storage";
-import { OperationStatus } from "../../shared/types";
+import { OperationStatus, FluxKontextProOptions } from "../../shared/types";
+import { FluxKontextProRequestSchema } from "../../shared/schema";
 import fetch from "node-fetch";
 
 if (!process.env.REPLICATE_API_TOKEN) {
@@ -216,6 +217,233 @@ export async function transformImageHandler(req: Request, res: Response) {
   } catch (error) {
     console.error("❌ Error in transform handler:", error);
     return res.status(500).json({ success: false, error: "Internal server error during transformation" });
+  }
+}
+
+/** 
+ * Transform an image using FLUX.1 Kontext Pro for text-guided editing
+ * Returns: { success, outputs: string[], transformedImage: string, operationId, model, meta }
+ */
+export async function fluxKontextProHandler(req: Request, res: Response) {
+  try {
+    console.log("🎨 Starting FLUX.1 Kontext Pro transformation");
+    
+    // Validate request body
+    const validation = FluxKontextProRequestSchema.safeParse(req.body);
+    if (!validation.success) {
+      console.error("❌ Invalid request format:", validation.error.errors);
+      return res.status(400).json({ 
+        success: false, 
+        error: `Invalid request: ${validation.error.errors.map(e => e.message).join(", ")}` 
+      });
+    }
+
+    const { image, options } = validation.data;
+    
+    if (!options.prompt || options.prompt.trim().length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Prompt is required for FLUX.1 Kontext Pro" 
+      });
+    }
+
+    // Prepare input for FLUX.1 Kontext Pro model
+    const input = {
+      prompt: options.prompt.trim(),
+      input_image: image,
+      aspect_ratio: options.aspect_ratio ?? "match_input_image",
+      output_format: options.output_format ?? "jpg",
+      safety_tolerance: options.safety_tolerance ?? 2,
+      ...(options.seed && { seed: options.seed }),
+      ...(options.finetune_id && { finetune_id: options.finetune_id }),
+    };
+
+    console.log("🎨 FLUX.1 Kontext Pro input:", { 
+      prompt: input.prompt, 
+      aspect_ratio: input.aspect_ratio,
+      output_format: input.output_format,
+      safety_tolerance: input.safety_tolerance,
+      seed: input.seed,
+      finetune_id: input.finetune_id
+    });
+
+    // Create prediction with FLUX.1 Kontext Pro model
+    const prediction = await replicate.predictions.create({
+      model: "black-forest-labs/flux-kontext-pro",
+      input,
+    });
+
+    console.log(`🔄 FLUX.1 Kontext Pro prediction created: ${prediction.id}`);
+
+    operationStore.set(prediction.id, {
+      id: prediction.id,
+      type: "transform",
+      status: "processing",
+      createdAt: new Date(),
+      input,
+      userId: req.user?.id,
+      model: "flux-kontext-pro",
+    });
+
+    // Poll until done (max ~2 min, similar to existing handler)
+    let finalPrediction = prediction;
+    const start = Date.now();
+    const timeoutMs = 120_000;
+
+    while (finalPrediction.status === "starting" || finalPrediction.status === "processing") {
+      if (Date.now() - start > timeoutMs) {
+        return res.status(408).json({
+          success: false,
+          error: "Request timed out. Please try again.",
+          operationId: prediction.id,
+          model: "flux-kontext-pro",
+        });
+      }
+      await sleep(2000);
+      finalPrediction = await replicate.predictions.get(prediction.id);
+      console.log("📊 FLUX.1 Kontext Pro prediction status:", finalPrediction.status);
+    }
+
+    if (finalPrediction.status !== "succeeded") {
+      const error = (finalPrediction as any).error || "FLUX.1 Kontext Pro transformation failed";
+      console.error("❌ FLUX.1 Kontext Pro transformation failed:", error);
+      operationStore.set(prediction.id, {
+        id: prediction.id,
+        type: "transform",
+        status: "failed",
+        error,
+        createdAt: new Date(),
+        failedAt: new Date(),
+        model: "flux-kontext-pro",
+      });
+      return res.status(500).json({ 
+        success: false, 
+        error, 
+        operationId: prediction.id,
+        model: "flux-kontext-pro"
+      });
+    }
+
+    // Extract output URL (FLUX.1 Kontext Pro typically returns a single image)
+    let replicateUrls: string[];
+    if (Array.isArray(finalPrediction.output)) {
+      replicateUrls = finalPrediction.output.filter((url): url is string => typeof url === 'string');
+    } else if (finalPrediction.output && typeof finalPrediction.output === 'string') {
+      replicateUrls = [finalPrediction.output];
+    } else {
+      console.error('❌ Invalid FLUX.1 Kontext Pro output format:', finalPrediction.output);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Invalid output format from FLUX.1 Kontext Pro service', 
+        operationId: prediction.id,
+        model: "flux-kontext-pro"
+      });
+    }
+
+    console.log(`✅ FLUX.1 Kontext Pro generated ${replicateUrls.length} image(s)`);
+
+    // Download & store outputs locally
+    const localUrls: string[] = [];
+    for (let i = 0; i < replicateUrls.length; i++) {
+      const url = replicateUrls[i];
+      try {
+        const resp = await fetch(url);
+        const buf = Buffer.from(await resp.arrayBuffer());
+        const fileExtension = input.output_format === "webp" ? "webp" : input.output_format === "png" ? "png" : "jpg";
+        const mimeType = input.output_format === "webp" ? "image/webp" : input.output_format === "png" ? "image/png" : "image/jpeg";
+        
+        const stored = await fileStorage.saveFile(
+          buf,
+          `flux_transformed_${prediction.id}_${i}.${fileExtension}`,
+          mimeType,
+          req.user?.id
+        );
+        const protocol = req.protocol || 'http';
+        const host = req.get('host') || 'localhost';
+        const local = `${protocol}://${host}${stored.url}`;
+        localUrls.push(local);
+      } catch (e) {
+        console.warn("⚠️ Could not persist FLUX.1 Kontext Pro output, falling back to remote URL:", url, e);
+        localUrls.push(url);
+      }
+    }
+
+    const completedAt = new Date();
+    const predictTime = completedAt.getTime() - start;
+
+    operationStore.set(prediction.id, {
+      id: prediction.id,
+      type: "transform",
+      status: "completed",
+      result: localUrls,
+      createdAt: new Date(),
+      completedAt,
+      model: "flux-kontext-pro",
+    });
+
+    // Save transformation record to database if user is authenticated
+    if (req.user && localUrls.length > 0) {
+      try {
+        // Save original input file to storage first if it's a data URL
+        let originalFileUrl = image;
+        let originalFileName = `flux_original_${prediction.id}.png`;
+        
+        if (image.startsWith('data:')) {
+          const base64Data = image.split(',')[1];
+          const buffer = Buffer.from(base64Data, 'base64');
+          const originalFile = await fileStorage.saveFile(
+            buffer,
+            originalFileName,
+            'image/png',
+            req.user.id
+          );
+          const protocol = req.protocol || 'http';
+          const host = req.get('host') || 'localhost';
+          originalFileUrl = `${protocol}://${host}${originalFile.url}`;
+        }
+        
+        await storage.createTransformation({
+          userId: req.user.id,
+          type: 'image',
+          status: 'completed',
+          originalFileName,
+          originalFileUrl,
+          transformationOptions: JSON.stringify({
+            model: 'flux-kontext-pro',
+            prompt: input.prompt,
+            aspect_ratio: input.aspect_ratio,
+            output_format: input.output_format,
+            safety_tolerance: input.safety_tolerance,
+            seed: input.seed,
+            finetune_id: input.finetune_id,
+          }),
+          resultFileUrls: localUrls,
+        });
+        console.log(`💾 FLUX.1 Kontext Pro transformation saved for user: ${req.user.username}`);
+      } catch (error) {
+        console.error('Error saving FLUX.1 Kontext Pro transformation to database:', error);
+      }
+    }
+
+    return res.json({
+      success: true,
+      outputs: localUrls,
+      transformedImage: localUrls[0],
+      operationId: prediction.id,
+      model: "flux-kontext-pro",
+      meta: {
+        predictTime,
+        imageCount: localUrls.length,
+        version: "flux-kontext-pro",
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error in FLUX.1 Kontext Pro handler:", error);
+    return res.status(500).json({ 
+      success: false, 
+      error: "Internal server error during FLUX.1 Kontext Pro transformation",
+      model: "flux-kontext-pro"
+    });
   }
 }
 

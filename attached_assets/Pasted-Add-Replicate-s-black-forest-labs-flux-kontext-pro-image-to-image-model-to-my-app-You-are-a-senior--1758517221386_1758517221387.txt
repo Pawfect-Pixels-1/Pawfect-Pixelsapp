@@ -1,0 +1,200 @@
+Add Replicate’s black-forest-labs/flux-kontext-pro image-to-image model to my app
+
+You are a senior full-stack TypeScript engineer. Update my monorepo (Node/Express + React/Vite, Stripe tiers + credit system, shared types with Zod, storage/multer upload pipeline) to add a new image-to-image transformation model powered by Replicate:
+
+Model: black-forest-labs/flux-kontext-pro (Replicate)
+Docs to follow for parameters & usage: API page & examples. Use the supported inputs such as prompt, input_image, aspect_ratio (support "match_input_image"), output_format ("jpg" default), safety_tolerance (0–5), and include optional fields you find in the model API like seed, finetune_id if available. Show correct Node SDK usage with replicate.run(...) returning a file URL/blob. 
+Replicate
++1
+
+What to build
+Shared schemas & types
+
+In packages/shared/src/types.ts, add:
+
+FluxKontextProOptions with:
+
+prompt: string (required)
+
+aspectRatio?: "match_input_image" | "1:1" | "16:9" | "4:3" | "3:4" | "9:16" (allow for future additions)
+
+outputFormat?: "jpg" | "png" | "webp"
+
+safetyTolerance?: 0 | 1 | 2 | 3 | 4 | 5
+
+seed?: number
+
+finetuneId?: string
+
+Extend TransformationRequest to allow model: "flux-kontext-pro" and options?: FluxKontextProOptions.
+
+Extend TransformationResponse to include outputUrl?: string and meta?: { predictTime?: number; imageCount?: number; version?: string }.
+
+In packages/shared/src/schema.ts (Zod):
+
+fluxKontextProOptionsSchema mirroring the interface above.
+
+Update any union schemas so "flux-kontext-pro" is a valid model.
+
+Credit & style registry
+
+In packages/shared/src/creditSystem.ts:
+
+Add a STYLE_DEFINITIONS["flux-kontext-pro"] entry:
+
+id: "flux-kontext-pro"
+
+name: "FLUX.1 Kontext Pro"
+
+tier: "premium" (default; adjust if you see a better mapping)
+
+estimatedCredits: 2 (configurable constant)
+
+category: "Artistic Styles" (or create a new “Text-guided Edit” category if that fits better)
+
+description: "State-of-the-art text-guided image editing with excellent prompt following."
+
+Ensure getCreditCost, hasStyleAccess, getStyleTier all recognize this style.
+
+Server: Replicate client + route
+
+Add lib/replicate.ts:
+
+Export a singleton Replicate client using REPLICATE_API_TOKEN (throw if missing).
+
+Add routes/transformations/fluxKontextPro.ts:
+
+Auth: require a valid session (req.session.userId) and load user. If invalid, 401.
+
+Credits: check access + sufficient credits for "flux-kontext-pro".
+
+Upload ingestion: accept either:
+
+multipart with image (file) + JSON options, or
+
+JSON with image as base64/URL and options.
+
+Validation: use Zod (fluxKontextProOptionsSchema) and basic image type checks.
+
+Replicate call:
+
+For Node SDK:
+
+const input = {
+  prompt: options.prompt,
+  input_image: sourceImageUrlOrData, // use a URL (preferred) – upload to your public object storage first
+  aspect_ratio: options.aspectRatio ?? "match_input_image",
+  output_format: options.outputFormat ?? "jpg",
+  safety_tolerance: options.safetyTolerance ?? 2,
+  seed: options.seed,
+  finetune_id: options.finetuneId,
+};
+const output = await replicate.run("black-forest-labs/flux-kontext-pro", { input });
+
+
+If SDK returns a file-like object, persist the image to our storage and capture a stable outputUrl. If it returns a URL, download & save, or store the URL directly (feature-flag this).
+
+Capture metrics if the API exposes them (e.g., predict time, image count).
+Follow the API examples & parameter names exactly. 
+Replicate
++1
+
+Response: { success: true, transformedImage?: base64, outputUrl, meta }
+
+Credit debit: on success, deduct credits; on failure, do not.
+
+Wire this route into routes.ts under POST /api/transformations/flux-kontext-pro.
+
+Storage
+
+Reuse existing ObjectStorageService / fileStorage to:
+
+Save the source upload to a temporary public URL for Replicate’s input_image.
+
+Store the generated output (output.jpg by default) as public (or private with signed URL, following current pattern).
+
+Return canonical file id, url, size, mimeType.
+
+Frontend integration
+
+In the StylePicker:
+
+Render a new card for "FLUX.1 Kontext Pro" using the category gradient, icon, tier badge, and gating rules (premium).
+
+Add a client hook useFluxKontextPro() that:
+
+Accepts file | base64, prompt, and optional params (aspectRatio, outputFormat, safetyTolerance, seed).
+
+POST to /api/transformations/flux-kontext-pro with the correct body or FormData.
+
+Surfaces progress states, error messages, and returns { outputUrl, meta }.
+
+Update any “Advanced options” drawer to expose these params with helpful tooltips (e.g., “Aspect ratio: use match_input_image to keep your original proportions.”) and sensible defaults.
+
+Tests (Vitest / RTL)
+
+Server unit tests:
+
+Validates Zod schema.
+
+Mocks Replicate client, asserts correct input mapping, token presence.
+
+Asserts 401 when unauthenticated; 402/403 for insufficient credits; 200 on success.
+
+Integration:
+
+Happy path end-to-end with a sample image stub → expect file saved & credits deducted.
+
+Frontend:
+
+Feature gating renders lock for non-premium users.
+
+Submits form, calls route, shows result preview and download button.
+
+Environment & config
+
+Ensure REPLICATE_API_TOKEN is read from env on the server (never shipped to client).
+
+Update Docker and Replit .env templates and startup checks to error loudly if missing.
+
+UX polish
+
+Show a short description and a link “Learn how this model works” → open a modal with a one-paragraph summary and safety notes.
+
+Default safety_tolerance=2 and allow 0–5 via a slider with ticks.
+
+Default output_format="jpg"; power users can choose png/webp.
+
+If the model supports finetune_id, add an “Advanced” free-text input (only visible to admins).
+
+Error handling
+
+Map Replicate API errors (validation, safety filters, rate limits) to user-friendly messages; include original error code in logs.
+
+Implement simple retry (one retry) for transient network errors.
+
+Documentation (MDX or README in repo)
+
+Short “How to use FLUX.1 Kontext Pro” guide with example prompts (e.g., “Make this a 90s cartoon”) and param tips. Include a Curl/Node example drawn from the official examples. 
+Replicate
+
+Acceptance criteria
+
+✅ POST /api/transformations/flux-kontext-pro accepts an image and prompt, validates options, calls Replicate with correct parameter names, and returns a persisted outputUrl.
+
+✅ Credits are checked/deducted according to our credit system; feature is gated by subscription tier.
+
+✅ New style appears in the StylePicker with proper icon/gradient/badges; non-eligible users see a gated UI.
+
+✅ Unit & integration tests pass; CI green.
+
+✅ Env, Docker, and README updated; missing token fails fast at boot.
+
+✅ Code conforms to our TypeScript types, ESLint/Prettier, and existing middleware patterns.
+
+Helpful references for the model
+
+Official Replicate API usage & Node example for flux-kontext-pro (note prompt, input_image, aspect_ratio, output_format, safety_tolerance). 
+Replicate
+
+Examples page with sample request/response and defaults (e.g., aspect_ratio: "match_input_image", output_format: "jpg", safety_tolerance: 2)

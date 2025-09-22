@@ -17,6 +17,20 @@ export type AspectRatio =
 
 export type OutputFormat = "jpg" | "png";
 
+/** FLUX.1 Kontext Pro specific types for text-guided editing */
+export type FluxAspectRatio = "match_input_image" | "1:1" | "16:9" | "4:3" | "3:4" | "9:16";
+export type FluxOutputFormat = "jpg" | "png" | "webp";
+export type FluxSafetyTolerance = 0 | 1 | 2 | 3 | 4 | 5;
+
+export interface FluxKontextProOptions {
+  prompt: string;
+  aspect_ratio?: FluxAspectRatio;
+  output_format?: FluxOutputFormat;
+  safety_tolerance?: FluxSafetyTolerance;
+  seed?: number;
+  finetune_id?: string;
+}
+
 export interface TransformationOptions {
   seed?: number | null;
   style?: StyleEnum;                 // default "Random"
@@ -138,6 +152,48 @@ export async function pollOperationStatus(operationId: string): Promise<any> {
   }
 
   throw new Error('Operation timed out');
+}
+
+/**
+ * Transform an image using FLUX.1 Kontext Pro for text-guided editing
+ * Returns ALL output URLs (array)
+ */
+export async function transformImageWithFluxKontext(
+  imageDataUrlOrHttp: string,
+  prompt: string,
+  options?: Partial<Omit<FluxKontextProOptions, 'prompt'>>
+): Promise<string[]> {
+  try {
+    console.log('🎨 Starting FLUX.1 Kontext Pro transformation:', { prompt, options });
+
+    const response = await apiRequest('POST', '/api/transformations/flux-kontext-pro', {
+      image: imageDataUrlOrHttp,
+      options: {
+        prompt,
+        aspect_ratio: options?.aspect_ratio ?? "match_input_image",
+        output_format: options?.output_format ?? "jpg",
+        safety_tolerance: options?.safety_tolerance ?? 2,
+        ...(options?.seed !== undefined && { seed: options.seed }),
+        ...(options?.finetune_id && { finetune_id: options.finetune_id }),
+      },
+    });
+
+    const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.error || 'FLUX.1 Kontext Pro transformation failed');
+    }
+
+    // Extract outputs array
+    const outputs: string[] = Array.isArray(result.outputs)
+      ? result.outputs
+      : (result.transformedImage ? [result.transformedImage] : []);
+
+    console.log(`✅ FLUX.1 Kontext Pro transformation completed (${outputs.length} images)`);
+    return outputs;
+  } catch (error) {
+    console.error('❌ FLUX.1 Kontext Pro transformation failed:', error);
+    throw new Error('Failed to transform image with text guidance. Please try again.');
+  }
 }
 
 /* Helpers */

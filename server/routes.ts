@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { transformImageHandler, generateVideoHandler, getStatusHandler } from "./services/replicate";
+import { transformImageHandler, fluxKontextProHandler, generateVideoHandler, getStatusHandler } from "./services/replicate";
 import { realtimeTransformImageHandler, setRealtimeService } from "./services/realtime-transform.js";
 import { uploadMiddleware } from "./middleware/upload";
 import { registerHandler, loginHandler, logoutHandler, getCurrentUserHandler, requireAuth, optionalAuth } from "./auth";
@@ -24,6 +24,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Image transformation endpoints (requires authentication)
   app.post("/api/transform", requireAuth, uploadMiddleware, transformImageHandler);
+  
+  // FLUX.1 Kontext Pro endpoint for text-guided transformations
+  app.post("/api/transformations/flux-kontext-pro", requireAuth, uploadMiddleware, fluxKontextProHandler);
   app.post("/api/transform-realtime", requireAuth, uploadMiddleware, realtimeTransformImageHandler);
   
   // Video generation endpoint (requires authentication)

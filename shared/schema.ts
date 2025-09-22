@@ -149,6 +149,33 @@ export const AspectRatioEnum = z.enum([
 
 export const OutputFormatEnum = z.enum(["jpg", "png"]);
 
+/** FLUX.1 Kontext Pro specific enums and schemas */
+export const FluxAspectRatioEnum = z.enum([
+  "match_input_image",
+  "1:1", 
+  "16:9",
+  "4:3",
+  "3:4", 
+  "9:16"
+]);
+
+export const FluxOutputFormatEnum = z.enum(["jpg", "png", "webp"]);
+
+export const FluxSafetyToleranceEnum = z.union([
+  z.literal(0), z.literal(1), z.literal(2), 
+  z.literal(3), z.literal(4), z.literal(5)
+]);
+
+/** FLUX.1 Kontext Pro options schema */
+export const FluxKontextProOptionsSchema = z.object({
+  prompt: z.string().min(1, "Prompt is required"),
+  aspect_ratio: FluxAspectRatioEnum.optional(),
+  output_format: FluxOutputFormatEnum.optional(),
+  safety_tolerance: FluxSafetyToleranceEnum.optional(),
+  seed: z.number().int().optional(),
+  finetune_id: z.string().optional(),
+});
+
 /** Options object accepted by our backend (aligned to model) */
 export const TransformationOptionsSchema = z.object({
   seed: z.number().int().optional().nullable(),
@@ -163,11 +190,21 @@ export const TransformationOptionsSchema = z.object({
   preserve_background: z.boolean().optional(),
 });
 
+/** Model selector schema */
+export const ModelEnum = z.enum(["face-to-many-kontext", "flux-kontext-pro"]);
+
 /** Request from client to server */
 export const TransformationRequestSchema = z.object({
   image: z.string(), // data: URI OR https URL (validated server-side)
+  model: ModelEnum.optional(), // which transformation model to use
   style: z.string().optional(), // UI tag/telemetry; not required by model
   options: TransformationOptionsSchema.optional(),
+});
+
+/** FLUX.1 Kontext Pro specific request schema */
+export const FluxKontextProRequestSchema = z.object({
+  image: z.string(), // data: URI OR https URL (validated server-side)
+  options: FluxKontextProOptionsSchema,
 });
 
 /** Server response (image transform) */
@@ -177,6 +214,12 @@ export const TransformationResponseSchema = z.object({
   transformedImage: z.string().url().optional(),      // legacy first URL
   operationId: z.string().optional(),
   error: z.string().optional(),
+  model: z.string().optional(),                       // which model was used
+  meta: z.object({                                     // additional metadata
+    predictTime: z.number().optional(),
+    imageCount: z.number().optional(),
+    version: z.string().optional(),
+  }).optional(),
 });
 
 /** Server response (video) */
@@ -210,6 +253,12 @@ export type StyleEnumT = z.infer<typeof StyleEnum>;
 export type PersonaEnumT = z.infer<typeof PersonaEnum>;
 export type AspectRatioEnumT = z.infer<typeof AspectRatioEnum>;
 export type OutputFormatEnumT = z.infer<typeof OutputFormatEnum>;
+export type ModelEnumT = z.infer<typeof ModelEnum>;
+export type FluxAspectRatioEnumT = z.infer<typeof FluxAspectRatioEnum>;
+export type FluxOutputFormatEnumT = z.infer<typeof FluxOutputFormatEnum>;
+export type FluxSafetyToleranceEnumT = z.infer<typeof FluxSafetyToleranceEnum>;
+export type FluxKontextProOptions = z.infer<typeof FluxKontextProOptionsSchema>;
+export type FluxKontextProRequest = z.infer<typeof FluxKontextProRequestSchema>;
 export type TransformationOptions = z.infer<typeof TransformationOptionsSchema>;
 export type TransformationRequest = z.infer<typeof TransformationRequestSchema>;
 export type TransformationResponse = z.infer<typeof TransformationResponseSchema>;

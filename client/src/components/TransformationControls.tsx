@@ -3,7 +3,7 @@ import { Wand2, Video, Sparkles, Palette, Zap, Clock } from 'lucide-react';
 
 // Store + API
 import { useTransformation } from '../lib/stores/useTransformation';
-import { transformImage, generateVideo, pollOperationStatus } from '../lib/replicate';
+import { transformImage, transformImageWithFluxKontext, generateVideo, pollOperationStatus, FluxKontextProOptions, FluxAspectRatio, FluxOutputFormat } from '../lib/replicate';
 import { RealtimeTransformModal } from './RealtimeTransformModal';
 import { VideoPlayer } from './VideoPlayer';
 
@@ -47,6 +47,9 @@ const PERSONA_ENUM = [
 type StyleEnum = (typeof STYLE_ENUM)[number];
 type PersonaEnum = (typeof PERSONA_ENUM)[number];
 
+// Transformation mode type
+type TransformationMode = 'character' | 'text-guided';
+
 
 const iconFor = (label: string) => {
   // keep your playful look using a couple of icons
@@ -67,9 +70,17 @@ const TransformationControls: React.FC = () => {
     isProcessing,
   } = useTransformation();
 
-  // Selected options (schema-aligned)
+  // Transformation mode state
+  const [transformationMode, setTransformationMode] = useState<TransformationMode>('character');
+  
+  // Selected options for character transformation
   const [selectedStyle, setSelectedStyle] = useState<StyleEnum>('Random');
   const [selectedPersona, setSelectedPersona] = useState<PersonaEnum>('Random');
+  
+  // Options for text-guided transformation (FLUX.1 Kontext Pro)
+  const [fluxPrompt, setFluxPrompt] = useState<string>('');
+  const [fluxAspectRatio, setFluxAspectRatio] = useState<FluxAspectRatio>('match_input_image');
+  const [fluxOutputFormat, setFluxOutputFormat] = useState<FluxOutputFormat>('jpg');
 
   // Video generation state
   const [videoPrompt, setVideoPrompt] = useState<string>('');
@@ -98,27 +109,46 @@ const TransformationControls: React.FC = () => {
       setIsProcessing(true);
       setCurrentOperation('transform');
 
-      // Call our updated API wrapper - returns string[]
-      const urls = await transformImage(
-        uploadedImage,
-        'ui', // telemetry tag; backend ignores or uses for logging
-        {
-          style: selectedStyle,
-          persona: selectedPersona,
-          // sensible defaults from schema (optional to send explicitly)
-          num_images: 1,
-          aspect_ratio: 'match_input_image',
-          output_format: 'png',
-          preserve_outfit: true,
-          preserve_background: false,
-          safety_tolerance: 2,
-        }
-      );
+      let urls: string[];
 
-      setTransformedImages(urls); // store the full array (legacy first image stays in sync)
+      if (transformationMode === 'character') {
+        // Character transformation using original Kontext model
+        urls = await transformImage(
+          uploadedImage,
+          'ui', // telemetry tag; backend ignores or uses for logging
+          {
+            style: selectedStyle,
+            persona: selectedPersona,
+            num_images: 1,
+            aspect_ratio: 'match_input_image',
+            output_format: 'png',
+            preserve_outfit: true,
+            preserve_background: false,
+            safety_tolerance: 2,
+          }
+        );
+      } else {
+        // Text-guided transformation using FLUX.1 Kontext Pro
+        if (!fluxPrompt.trim()) {
+          throw new Error('Please enter a transformation prompt');
+        }
+
+        urls = await transformImageWithFluxKontext(
+          uploadedImage,
+          fluxPrompt,
+          {
+            aspect_ratio: fluxAspectRatio,
+            output_format: fluxOutputFormat,
+            safety_tolerance: 2,
+          }
+        );
+      }
+
+      console.log(`✅ ${transformationMode} transform complete, received URLs:`, urls);
+      setTransformedImages(urls);
     } catch (error) {
-      console.error('Transformation failed:', error);
-      alert('Transformation failed. Please try again.');
+      console.error('❌ Transform error:', error);
+      alert(error instanceof Error ? error.message : 'Transformation failed. Please try again.');
     } finally {
       setIsProcessing(false);
       setCurrentOperation(null);
@@ -237,94 +267,201 @@ const TransformationControls: React.FC = () => {
         </div>
       ) : (
         <div className="flex-1 space-y-6 overflow-y-auto">
+          {/* Mode Selection */}
+          <div className="space-y-3">
+            <h3 className="font-semibold text-black flex items-center">
+              <Sparkles className="w-4 h-4 mr-2" />
+              Transformation Mode
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setTransformationMode('character')}
+                disabled={isProcessing}
+                className={`
+                  p-3 rounded-lg border-2 text-left transition-all font-medium
+                  ${transformationMode === 'character'
+                    ? 'bg-[#c6c2e6] border-[#c6c2e6] text-black shadow-[4px_4px_0px_0px_#000000]'
+                    : 'bg-white border-gray-300 text-black hover:border-[#c6c2e6] hover:bg-[#c6c2e6]/10'}
+                  ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                `}
+              >
+                <div className="flex items-center">
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  <div>
+                    <span className="text-sm font-medium">Character Styles</span>
+                    <div className="text-xs text-gray-600">Predefined styles & personas</div>
+                  </div>
+                </div>
+              </button>
+              <button
+                onClick={() => setTransformationMode('text-guided')}
+                disabled={isProcessing}
+                className={`
+                  p-3 rounded-lg border-2 text-left transition-all font-medium
+                  ${transformationMode === 'text-guided'
+                    ? 'bg-[#c6c2e6] border-[#c6c2e6] text-black shadow-[4px_4px_0px_0px_#000000]'
+                    : 'bg-white border-gray-300 text-black hover:border-[#c6c2e6] hover:bg-[#c6c2e6]/10'}
+                  ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                `}
+              >
+                <div className="flex items-center">
+                  <Wand2 className="w-4 h-4 mr-2" />
+                  <div>
+                    <span className="text-sm font-medium">Text-Guided</span>
+                    <div className="text-xs text-gray-600">Custom text prompts</div>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+
           {/* Image Transformation Section */}
           <div className="space-y-3">
             <h3 className="font-semibold text-black flex items-center">
               <Sparkles className="w-4 h-4 mr-2" />
-              Transform Image
+              {transformationMode === 'character' ? 'Character Options' : 'Text Transformation'}
             </h3>
 
-            {/* Styles */}
-            <div className="space-y-2">
-              <div className="text-sm font-semibold">Style</div>
-              <div className="grid grid-cols-1 gap-2">
-                {styleOptions.map((option) => {
-                  const Icon = option.icon;
-                  return (
-                    <button
-                      key={option.id}
-                      onClick={() => setSelectedStyle(option.id as StyleEnum)}
-                      disabled={isProcessing}
-                      className={`
-                        p-3 rounded-lg border-2 text-left transition-all font-medium
-                        ${selectedStyle === option.id
-                          ? 'bg-[#c6c2e6] border-[#c6c2e6] text-black shadow-[4px_4px_0px_0px_#000000]'
-                          : 'bg-white border-gray-300 text-black hover:border-[#c6c2e6] hover:bg-[#c6c2e6]/10'}
-                        ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-                      `}
-                    >
-                      <div className="flex items-center">
-                        <Icon className="w-4 h-4 mr-2" />
-                        <span className="text-sm">{option.label}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            {transformationMode === 'character' ? (
+              <>
+                {/* Styles */}
+                <div className="space-y-2">
+                  <div className="text-sm font-semibold">Style</div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {styleOptions.map((option) => {
+                      const Icon = option.icon;
+                      return (
+                        <button
+                          key={option.id}
+                          onClick={() => setSelectedStyle(option.id as StyleEnum)}
+                          disabled={isProcessing}
+                          className={`
+                            p-3 rounded-lg border-2 text-left transition-all font-medium
+                            ${selectedStyle === option.id
+                              ? 'bg-[#c6c2e6] border-[#c6c2e6] text-black shadow-[4px_4px_0px_0px_#000000]'
+                              : 'bg-white border-gray-300 text-black hover:border-[#c6c2e6] hover:bg-[#c6c2e6]/10'}
+                            ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                          `}
+                        >
+                          <div className="flex items-center">
+                            <Icon className="w-4 h-4 mr-2" />
+                            <span className="text-sm">{option.label}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-            {/* Personas */}
-            <div className="space-y-2">
-              <div className="text-sm font-semibold">Persona</div>
-              <div className="grid grid-cols-1 gap-2">
-                {personaOptions.map((option) => {
-                  const Icon = option.icon;
-                  return (
-                    <button
-                      key={option.id}
-                      onClick={() => setSelectedPersona(option.id as PersonaEnum)}
+                {/* Personas */}
+                <div className="space-y-2">
+                  <div className="text-sm font-semibold">Persona</div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {personaOptions.map((option) => {
+                      const Icon = option.icon;
+                      return (
+                        <button
+                          key={option.id}
+                          onClick={() => setSelectedPersona(option.id as PersonaEnum)}
+                          disabled={isProcessing}
+                          className={`
+                            p-3 rounded-lg border-2 text-left transition-all font-medium
+                            ${selectedPersona === option.id
+                              ? 'bg-[#c6c2e6] border-[#c6c2e6] text-black shadow-[4px_4px_0px_0px_#000000]'
+                              : 'bg-white border-gray-300 text-black hover:border-[#c6c2e6] hover:bg-[#c6c2e6]/10'}
+                            ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                          `}
+                        >
+                          <div className="flex items-center">
+                            <Icon className="w-4 h-4 mr-2" />
+                            <span className="text-sm">{option.label}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Text-Guided Prompt */}
+                <div className="space-y-2">
+                  <div className="text-sm font-semibold">Transformation Prompt</div>
+                  <textarea
+                    value={fluxPrompt}
+                    onChange={(e) => setFluxPrompt(e.target.value)}
+                    placeholder="Describe how you want to transform the image (e.g., 'Make this a 90s cartoon', 'Remove the background', 'Add sunglasses')"
+                    disabled={isProcessing}
+                    className="w-full p-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    rows={3}
+                  />
+                </div>
+
+                {/* FLUX Options */}
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <div className="text-sm font-semibold mb-2">Aspect Ratio</div>
+                    <select
+                      value={fluxAspectRatio}
+                      onChange={(e) => setFluxAspectRatio(e.target.value as FluxAspectRatio)}
                       disabled={isProcessing}
-                      className={`
-                        p-3 rounded-lg border-2 text-left transition-all font-medium
-                        ${selectedPersona === option.id
-                          ? 'bg-[#c6c2e6] border-[#c6c2e6] text-black shadow-[4px_4px_0px_0px_#000000]'
-                          : 'bg-white border-gray-300 text-black hover:border-[#c6c2e6] hover:bg-[#c6c2e6]/10'}
-                        ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-                      `}
+                      className="w-full p-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <div className="flex items-center">
-                        <Icon className="w-4 h-4 mr-2" />
-                        <span className="text-sm">{option.label}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+                      <option value="match_input_image">Match Input</option>
+                      <option value="1:1">Square (1:1)</option>
+                      <option value="16:9">Landscape (16:9)</option>
+                      <option value="9:16">Portrait (9:16)</option>
+                      <option value="4:3">Classic (4:3)</option>
+                      <option value="3:4">Portrait (3:4)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="text-sm font-semibold mb-2">Output Format</div>
+                    <select
+                      value={fluxOutputFormat}
+                      onChange={(e) => setFluxOutputFormat(e.target.value as FluxOutputFormat)}
+                      disabled={isProcessing}
+                      className="w-full p-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <option value="jpg">JPEG</option>
+                      <option value="png">PNG</option>
+                      <option value="webp">WebP</option>
+                    </select>
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Transform Buttons */}
             <div className="space-y-3">
-              {/* Real-time Transform Button */}
-              <button
-                onClick={handleRealtimeTransform}
-                disabled={isProcessing}
-                className="w-full bg-gradient-to-r from-purple-500 to-blue-500 text-white py-3 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-[4px_4px_0px_0px_#000000] disabled:hover:translate-x-0 disabled:hover:translate-y-0"
-              >
-                <div className="flex items-center justify-center">
-                  <Zap className="w-4 h-4 mr-2" />
-                  Real-time Preview
-                </div>
-              </button>
+              {transformationMode === 'character' && (
+                <button
+                  onClick={handleRealtimeTransform}
+                  disabled={isProcessing}
+                  className="w-full bg-gradient-to-r from-purple-500 to-blue-500 text-white py-3 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-[4px_4px_0px_0px_#000000] disabled:hover:translate-x-0 disabled:hover:translate-y-0"
+                >
+                  <div className="flex items-center justify-center">
+                    <Zap className="w-4 h-4 mr-2" />
+                    Real-time Preview
+                  </div>
+                </button>
+              )}
 
-              {/* Regular Transform Button */}
+              {/* Transform Button */}
               <button
                 onClick={handleTransform}
-                disabled={isProcessing}
+                disabled={isProcessing || (transformationMode === 'text-guided' && !fluxPrompt.trim())}
                 className="w-full bg-[#c6c2e6] text-black py-3 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-[4px_4px_0px_0px_#000000] disabled:hover:translate-x-0 disabled:hover:translate-y-0"
               >
                 <div className="flex items-center justify-center">
-                  <Clock className="w-4 h-4 mr-2" />
-                  Regular Transform
+                  {transformationMode === 'character' ? (
+                    <Clock className="w-4 h-4 mr-2" />
+                  ) : (
+                    <Wand2 className="w-4 h-4 mr-2" />
+                  )}
+                  {isProcessing ? 'Transforming...' : 
+                   transformationMode === 'character' ? 'Regular Transform' : 'Text-Guided Transform'}
                 </div>
               </button>
             </div>
