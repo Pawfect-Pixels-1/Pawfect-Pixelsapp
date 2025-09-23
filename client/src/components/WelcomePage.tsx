@@ -213,7 +213,7 @@ export default function WelcomePage() {
             animate={{ opacity: 1, y: 0 }}
             className="text-center max-w-4xl mx-auto"
           >
-            <h1 className="text-6xl font-bold mb-6 text-gray-900">
+            <h1 className="font-header text-6xl font-bold mb-6 text-gray-900">
               Welcome to <span className="text-purple-600">AI Studio</span>
             </h1>
             <p className="text-xl text-gray-700 mb-8">
@@ -247,7 +247,7 @@ export default function WelcomePage() {
                 transition={{ delay: 0.3 }}
                 className="text-center mb-12"
               >
-                <h2 className="text-4xl font-bold mb-4 text-gray-900">
+                <h2 className="font-header text-4xl font-bold mb-4 text-gray-900">
                   See the <span className="text-purple-600">Magic</span> in Action
                 </h2>
                 <p className="text-xl text-gray-700 max-w-2xl mx-auto">
@@ -263,7 +263,7 @@ export default function WelcomePage() {
                   transition={{ delay: 0.4 }}
                   className="space-y-4"
                 >
-                  <h3 className="text-2xl font-semibold text-center text-gray-800">
+                  <h3 className="font-title text-2xl font-semibold text-center text-gray-800">
                     Cartoon Style Transform
                   </h3>
                   <BeforeAfterSlider
@@ -283,7 +283,7 @@ export default function WelcomePage() {
                   transition={{ delay: 0.5 }}
                   className="space-y-4"
                 >
-                  <h3 className="text-2xl font-semibold text-center text-gray-800">
+                  <h3 className="font-title text-2xl font-semibold text-center text-gray-800">
                     Angel Style Transform
                   </h3>
                   <BeforeAfterSlider
@@ -304,7 +304,7 @@ export default function WelcomePage() {
                 transition={{ delay: 0.6 }}
                 className="text-center"
               >
-                <h3 className="text-2xl font-semibold mb-6 text-gray-800">
+                <h3 className="font-title text-2xl font-semibold mb-6 text-gray-800">
                   Dynamic Video Generation
                 </h3>
                 <div className="max-w-md mx-auto">
@@ -333,19 +333,19 @@ export default function WelcomePage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
               <Card className="border-2 border-black shadow-[6px_6px_0_#000]">
                 <CardContent className="p-6 text-center">
-                  <div className="text-3xl font-bold text-purple-600 mb-2">{users.toLocaleString()}+</div>
+                  <div className="font-title text-3xl font-bold text-purple-600 mb-2">{users.toLocaleString()}+</div>
                   <div className="text-gray-600">Active Users</div>
                 </CardContent>
               </Card>
               <Card className="border-2 border-black shadow-[6px_6px_0_#000]">
                 <CardContent className="p-6 text-center">
-                  <div className="text-3xl font-bold text-purple-600 mb-2">{renders.toLocaleString()}+</div>
+                  <div className="font-title text-3xl font-bold text-purple-600 mb-2">{renders.toLocaleString()}+</div>
                   <div className="text-gray-600">Images Generated</div>
                 </CardContent>
               </Card>
               <Card className="border-2 border-black shadow-[6px_6px_0_#000]">
                 <CardContent className="p-6 text-center">
-                  <div className="text-3xl font-bold text-purple-600 mb-2">{styles}+</div>
+                  <div className="font-title text-3xl font-bold text-purple-600 mb-2">{styles}+</div>
                   <div className="text-gray-600">Art Styles</div>
                 </CardContent>
               </Card>

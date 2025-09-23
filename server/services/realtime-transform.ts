@@ -7,7 +7,7 @@ export function setRealtimeService(service: RealtimeService) {
   realtimeService = service;
 }
 
-export async function realtimeTransformImageHandler(req: Request, res: Response) {
+export async function realtimeTransformImageHandler( req: Request, res: Response) {
   try {
     // For now, just return a placeholder response
     // This can be enhanced later for real-time transformation features

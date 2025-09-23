@@ -68,7 +68,7 @@ const UploadZone: React.FC = () => {
 
   return (
     <div className="p-6 h-full flex flex-col">
-      <h2 className="text-xl font-bold text-black mb-4" style={{ fontFamily: 'Wedges, Inter, sans-serif' }}>
+      <h2 className="font-title text-xl font-bold text-black mb-4">
         Upload Portrait
       </h2>
       

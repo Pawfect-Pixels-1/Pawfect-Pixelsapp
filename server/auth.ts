@@ -50,23 +50,23 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
 };
 
 // Optional auth middleware - adds user to request if logged in
-export const optionalAuth = async (req: Request, res: Response, next: NextFunction) => {
-  if (req.session?.userId) {
-    try {
-      const user = await storage.getUser(req.session.userId);
-      if (user) {
-        req.user = {
-          id: user.id,
-          username: user.username,
-          email: user.email || undefined,
-        };
-      }
-    } catch (error) {
-      console.error('Optional auth error:', error);
+export async function optionalAuth(req: Request, res: Response, next: NextFunction) {
+    if (req.session?.userId) {
+        try {
+            const user = await storage.getUser(req.session.userId);
+            if (user) {
+                req.user = {
+                    id: user.id,
+                    username: user.username,
+                    email: user.email || undefined,
+                };
+            }
+        } catch (error) {
+            console.error('Optional auth error:', error);
+        }
     }
-  }
-  next();
-};
+    next();
+}
 
 // Register new user
 export const registerHandler = async (req: Request, res: Response) => {

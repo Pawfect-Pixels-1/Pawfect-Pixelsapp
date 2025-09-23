@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import Replicate from "replicate";
 import { storage, fileStorage } from "../storage";
-import { OperationStatus, FluxKontextProOptions, Gen4AlephOptions } from "../../shared/types";
+import * as types from "../../shared/types";
 import { FluxKontextProRequestSchema, Gen4AlephRequestSchema } from "../../shared/schema";
 import fetch from "node-fetch";
 
@@ -13,7 +13,7 @@ if (!process.env.REPLICATE_API_TOKEN) {
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
 // Tracks operation status/results across requests
-const operationStore = new Map<string, OperationStatus>();
+const operationStore = new Map<string, types.OperationStatus>();
 
 /** --- Pin a known version for reproducibility (update as needed) --- */
 // Example version hash from the model’s API page:
@@ -516,7 +516,7 @@ export async function generateVideoHandler(req: Request, res: Response) {
     }
 
     // Store operation details for polling
-    const operation: OperationStatus = {
+    const operation: types.OperationStatus = {
       status: 'processing',
       type: 'video',
       createdAt: new Date(),

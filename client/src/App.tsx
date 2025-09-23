@@ -137,7 +137,7 @@ function AppContent() {
           <div className="mt-6">
             <Card className="shadow-[8px_8px_0px_0px_#c6c2e6] border-2 border-black">
               <div className="p-6">
-                <h2 className="text-2xl font-bold text-black mb-4" style={{ fontFamily: 'Wedges, Inter, sans-serif' }}>
+                <h2 className="font-title text-2xl font-bold text-black mb-4">
                   Results
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

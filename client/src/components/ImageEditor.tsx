@@ -259,7 +259,7 @@ export function ImageEditor({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Crop className="w-5 h-5" />
-              <h2 className="text-lg font-bold text-black" style={{ fontFamily: "Wedges, Inter, sans-serif" }}>
+              <h2 className="font-title text-lg font-bold text-black">
                 Edit Image
               </h2>
             </div>

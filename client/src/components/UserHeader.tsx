@@ -28,7 +28,7 @@ export function UserHeader() {
       <div className="flex items-center justify-between mb-8">
         {/* Logo and Title */}
         <div className="text-center flex-1">
-          <h1 className="text-4xl font-black text-black mb-2" style={{ fontFamily: 'poppins, poppins' }}>
+          <h1 className="font-header text-4xl font-black text-black mb-2">
             Portrait Studio
           </h1>
           <p className="font-regular text-Black-600 text-lg">

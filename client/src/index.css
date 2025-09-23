@@ -1,9 +1,23 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Wedges:wght@400;500;600;700;800&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── Custom Fonts ─────────────────────────────────────────────── */
+@font-face {
+  font-family: "Super Joyful";
+  src: url("/fonts/SuperJoyful.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "YuseiMagic";
+  src: url("/fonts/YuseiMagic-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
 
 @layer base {
   :root {
@@ -39,58 +53,81 @@
   }
 
   body {
-    @apply font-sans antialiased bg-background text-foreground;
+    @apply antialiased bg-background text-foreground;
     margin: 0;
     padding: 0;
-    font-family: 'Inter', sans-serif;
+    /* Default to clean sans-serif for body text */
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji",
+                 "Segoe UI Symbol", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
 @layer utilities {
-  .font-wedges {
-    font-family: 'Wedges', 'Inter', sans-serif;
+  /* Font Hierarchy Classes */
+  .font-header {
+    font-family: "Super Joyful", system-ui, -apple-system, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
   }
   
+  .font-title {
+    font-family: "YuseiMagic", system-ui, -apple-system, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+  }
+  
+  .font-body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+  }
+
+  /* Legacy support - keep font-brand for backward compatibility */
+  .font-brand {
+    font-family: "Super Joyful", system-ui, -apple-system, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+  }
+
+  /* 3D text effect for headings/buttons */
+  .text-3d {
+    text-shadow:
+      0 1px 0 rgba(0,0,0,0.07),
+      0 2px 0 rgba(0,0,0,0.07),
+      0 3px 0 rgba(0,0,0,0.06),
+      0 4px 0 rgba(0,0,0,0.06),
+      0 5px 0 rgba(0,0,0,0.05),
+      0 6px 0 rgba(0,0,0,0.05),
+      0 8px 6px rgba(0,0,0,0.15);
+  }
+
   .shadow-funky {
     box-shadow: 8px 8px 0px 0px #000000;
   }
-  
+
   .shadow-funky-sm {
     box-shadow: 4px 4px 0px 0px #000000;
   }
-  
+
   .shadow-funky-xs {
     box-shadow: 2px 2px 0px 0px #000000;
   }
-  
-  .border-3 {
-    border-width: 3px;
-  }
-  
-  .border-4 {
-    border-width: 4px;
-  }
+
+  .border-3 { border-width: 3px; }
+  .border-4 { border-width: 4px; }
 }
 
 /* Custom scrollbar for WebKit browsers */
-::-webkit-scrollbar {
-  width: 6px;
-}
-
+::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track {
   background: #f1f1f1;
   border-radius: 3px;
 }
-
 ::-webkit-scrollbar-thumb {
   background: #c6c2e6;
   border-radius: 3px;
   border: 1px solid #000000;
 }
-
-::-webkit-scrollbar-thumb:hover {
-  background: #6c8b3a;
-}
+::-webkit-scrollbar-thumb:hover { background: #6c8b3a; }
 
 /* Custom drag and drop styling */
 .dropzone-active {
@@ -103,12 +140,10 @@
   @apply transition-all duration-150 ease-in-out;
   box-shadow: 4px 4px 0px 0px #000000;
 }
-
 .btn-funky:hover {
   box-shadow: 2px 2px 0px 0px #000000;
   transform: translate(2px, 2px);
 }
-
 .btn-funky:active {
   box-shadow: 1px 1px 0px 0px #000000;
   transform: translate(3px, 3px);
@@ -119,7 +154,6 @@
   @apply transition-all duration-300 ease-in-out;
   box-shadow: 8px 8px 0px 0px #c6c2e6;
 }
-
 .card-funky:hover {
   box-shadow: 12px 12px 0px 0px #c6c2e6;
   transform: translate(-2px, -2px);
@@ -127,27 +161,15 @@
 
 /* Loading animation */
 @keyframes spin-slow {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
-
-.animate-spin-slow {
-  animation: spin-slow 2s linear infinite;
-}
+.animate-spin-slow { animation: spin-slow 2s linear infinite; }
 
 /* Responsive text sizing */
 @media (max-width: 640px) {
-  h1 {
-    font-size: 2rem;
-  }
-  
-  h2 {
-    font-size: 1.5rem;
-  }
+  h1 { font-size: 2rem; }
+  h2 { font-size: 1.5rem; }
 }
 
 /* Focus styles for accessibility */
@@ -159,6 +181,4 @@ textarea:focus-visible {
 }
 
 /* Progress bar animation */
-.progress-bar {
-  transition: width 0.3s ease-in-out;
-}
+.progress-bar { transition: width 0.3s ease-in-out; }

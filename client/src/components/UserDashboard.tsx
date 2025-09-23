@@ -188,7 +188,7 @@ export function UserDashboard() {
     <div className="p-6 space-y-6">
       <Card className="shadow-[8px_8px_0px_0px_#c6c2e6] border-2 border-black">
         <div className="p-6">
-          <h1 className="text-3xl font-bold text-black mb-2" style={{ fontFamily: 'Wedges, Inter, sans-serif' }}>
+          <h1 className="font-header text-3xl font-bold text-black mb-2">
             Welcome back, {user.username}!
           </h1>
           <p className="text-gray-600">Manage your transformation history and files</p>
