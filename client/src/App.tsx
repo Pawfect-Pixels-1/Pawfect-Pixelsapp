@@ -9,7 +9,6 @@ import WelcomePage from "./components/WelcomePage";
 import { useTransformation } from "./lib/stores/useTransformation";
 import { useAuth } from "./lib/stores/useAuth";
 import { Card } from "./components/ui/card";
-import "@fontsource/inter";
 
 const queryClient = new QueryClient();
 
