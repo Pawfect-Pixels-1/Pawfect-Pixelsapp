@@ -200,4 +200,78 @@ export default function WelcomePage() {
               </CardContent>
             </Card>
           </motion.div>
-        )
+        )}
+      </AnimatePresence>
+
+      {/* Main Welcome Content */}
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 relative overflow-hidden">
+        <FloatingShapes />
+        
+        <div className="relative z-10 container mx-auto px-4 py-20">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center max-w-4xl mx-auto"
+          >
+            <h1 className="text-6xl font-bold mb-6 text-gray-900">
+              Welcome to <span className="text-purple-600">AI Studio</span>
+            </h1>
+            <p className="text-xl text-gray-700 mb-8">
+              Transform your ideas into stunning visuals with the power of AI
+            </p>
+            
+            <div className="flex gap-4 justify-center mb-16">
+              <Button 
+                size="lg" 
+                className="bg-purple-600 hover:bg-purple-700 border-2 border-black shadow-[6px_6px_0_#000]"
+                onClick={openRegister}
+              >
+                <Sparkles className="w-5 h-5 mr-2" />
+                Get Started Free
+              </Button>
+              <Button 
+                variant="secondary" 
+                size="lg"
+                className="border-2 border-black shadow-[6px_6px_0_#000]"
+                onClick={openLogin}
+              >
+                Sign In
+              </Button>
+            </div>
+
+            {/* Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
+              <Card className="border-2 border-black shadow-[6px_6px_0_#000]">
+                <CardContent className="p-6 text-center">
+                  <div className="text-3xl font-bold text-purple-600 mb-2">{users.toLocaleString()}+</div>
+                  <div className="text-gray-600">Active Users</div>
+                </CardContent>
+              </Card>
+              <Card className="border-2 border-black shadow-[6px_6px_0_#000]">
+                <CardContent className="p-6 text-center">
+                  <div className="text-3xl font-bold text-purple-600 mb-2">{renders.toLocaleString()}+</div>
+                  <div className="text-gray-600">Images Generated</div>
+                </CardContent>
+              </Card>
+              <Card className="border-2 border-black shadow-[6px_6px_0_#000]">
+                <CardContent className="p-6 text-center">
+                  <div className="text-3xl font-bold text-purple-600 mb-2">{styles}+</div>
+                  <div className="text-gray-600">Art Styles</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Testimonials */}
+            <TestimonialCarousel />
+          </motion.div>
+        </div>
+      </div>
+
+      {/* Auth Dialog */}
+      <AuthDialog 
+        open={showAuthDialog}
+        onOpenChange={setShowAuthDialog}
+      />
+    </>
+  );
+}
