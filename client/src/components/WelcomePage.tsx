@@ -239,6 +239,96 @@ export default function WelcomePage() {
               </Button>
             </div>
 
+            {/* Showcase Gallery */}
+            <div className="mb-20">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="text-center mb-12"
+              >
+                <h2 className="text-4xl font-bold mb-4 text-gray-900">
+                  See the <span className="text-purple-600">Magic</span> in Action
+                </h2>
+                <p className="text-xl text-gray-700 max-w-2xl mx-auto">
+                  Transform ordinary portraits into extraordinary art with our AI-powered tools
+                </p>
+              </motion.div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+                {/* Cartoon Transformation */}
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className="space-y-4"
+                >
+                  <h3 className="text-2xl font-semibold text-center text-gray-800">
+                    Cartoon Style Transform
+                  </h3>
+                  <BeforeAfterSlider
+                    beforeSrc="/showcase/before-1.jpeg"
+                    afterSrc="/showcase/after-1-cartoon.png"
+                    labelBefore="ORIGINAL"
+                    labelAfter="CARTOON"
+                    altBefore="Original portrait photo"
+                    altAfter="Cartoon style transformation"
+                  />
+                </motion.div>
+
+                {/* Angel Transformation */}
+                <motion.div
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.5 }}
+                  className="space-y-4"
+                >
+                  <h3 className="text-2xl font-semibold text-center text-gray-800">
+                    Angel Style Transform
+                  </h3>
+                  <BeforeAfterSlider
+                    beforeSrc="/showcase/before-2.jpeg"
+                    afterSrc="/showcase/after-2-angel.png"
+                    labelBefore="ORIGINAL"
+                    labelAfter="ANGEL"
+                    altBefore="Original portrait photo"
+                    altAfter="Angel style transformation"
+                  />
+                </motion.div>
+              </div>
+
+              {/* Video Showcase */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.6 }}
+                className="text-center"
+              >
+                <h3 className="text-2xl font-semibold mb-6 text-gray-800">
+                  Dynamic Video Generation
+                </h3>
+                <div className="max-w-md mx-auto">
+                  <div className="relative rounded-xl border-2 border-black shadow-[6px_6px_0_#000] overflow-hidden bg-black">
+                    <video
+                      src="/showcase/after-video.mp4"
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      className="w-full h-72 object-cover"
+                      onError={(e) => console.log('Video loading error:', e)}
+                    />
+                    <div className="absolute top-3 left-3 px-3 py-1 text-xs font-bold bg-white/80 border border-black rounded-full">
+                      AI VIDEO
+                    </div>
+                  </div>
+                  <p className="text-gray-600 mt-4 text-sm">
+                    Turn your transformed portraits into captivating videos
+                  </p>
+                </div>
+              </motion.div>
+            </div>
+
             {/* Stats */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
               <Card className="border-2 border-black shadow-[6px_6px_0_#000]">
