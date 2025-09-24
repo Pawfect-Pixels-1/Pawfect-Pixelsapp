@@ -2,11 +2,15 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { LogIn, LogOut, User, History } from 'lucide-react';
+import { LogIn, LogOut, User, History, CreditCard } from 'lucide-react';
 import { useAuth } from '@/lib/stores/useAuth';
 import { AuthDialog } from './AuthDialog';
 
-export function UserHeader() {
+interface UserHeaderProps {
+  onShowPricing?: () => void;
+}
+
+export function UserHeader({ onShowPricing }: UserHeaderProps) {
   const { user, isAuthenticated, logout, checkAuth } = useAuth();
   const [showAuthDialog, setShowAuthDialog] = useState(false);
 
@@ -58,6 +62,13 @@ export function UserHeader() {
                 <DropdownMenuItem className="flex items-center gap-2">
                   <History className="h-4 w-4" />
                   Your Transformations
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  onClick={onShowPricing}
+                  className="flex items-center gap-2"
+                >
+                  <CreditCard className="h-4 w-4" />
+                  Billing & Credits
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem 

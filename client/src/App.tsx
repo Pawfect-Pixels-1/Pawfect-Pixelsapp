@@ -5,6 +5,7 @@ import PreviewGrid from "./components/PreviewGrid";
 import TransformationControls from "./components/TransformationControls";
 import { UserHeader } from "./components/UserHeader";
 import { UserDashboard } from "./components/UserDashboard";
+import { PricingPage } from "./components/PricingPage";
 import WelcomePage from "./components/WelcomePage";
 import { useTransformation } from "./lib/stores/useTransformation";
 import { useAuth } from "./lib/stores/useAuth";
@@ -21,7 +22,7 @@ function AppContent() {
     isProcessing, 
     currentOperation 
   } = useTransformation();
-  const [currentView, setCurrentView] = useState<'studio' | 'dashboard'>('studio');
+  const [currentView, setCurrentView] = useState<'studio' | 'dashboard' | 'pricing'>('studio');
 
   // Show loading state while checking authentication
   if (isLoading) {
@@ -40,6 +41,13 @@ function AppContent() {
     return <WelcomePage />;
   }
 
+  // Show pricing page
+  if (currentView === 'pricing') {
+    return (
+      <PricingPage onBack={() => setCurrentView('studio')} />
+    );
+  }
+
   // Show dashboard view for authenticated users
   if (currentView === 'dashboard') {
     return (
@@ -47,7 +55,7 @@ function AppContent() {
         <div className="max-w-7xl mx-auto">
           {/* Header with navigation */}
           <div className="p-4">
-            <UserHeader />
+            <UserHeader onShowPricing={() => setCurrentView('pricing')} />
             <div className="flex justify-center mt-4 space-x-4">
               <button
                 onClick={() => setCurrentView('studio')}
@@ -74,7 +82,7 @@ function AppContent() {
     <div className="min-h-screen bg-[#fffdf5] p-4 font-sans">
       <div className="max-w-7xl mx-auto">
         {/* Header with navigation */}
-        <UserHeader />
+        <UserHeader onShowPricing={() => setCurrentView('pricing')} />
         <div className="flex justify-center mt-4 mb-6 space-x-4">
           <button
             onClick={() => setCurrentView('studio')}
