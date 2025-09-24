@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { AuthDialog } from "./AuthDialog";
+import { WelcomePricingSection } from "./WelcomePricingSection";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: Floating decorative shapes
@@ -328,6 +329,9 @@ export default function WelcomePage() {
                 </div>
               </motion.div>
             </div>
+
+            {/* Pricing Plans */}
+            <WelcomePricingSection onGetStarted={openRegister} />
 
             {/* Stats */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
