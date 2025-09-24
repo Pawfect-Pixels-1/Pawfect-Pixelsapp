@@ -10,7 +10,7 @@ import { Readable } from 'stream';
 
 // Initialize database connection
 const sql = neon(process.env.DATABASE_URL!);
-const db = drizzle(sql, { schema: { users, transformations, userFiles, shareLinks, shareEvents } });
+export const db = drizzle(sql, { schema: { users, transformations, userFiles, shareLinks, shareEvents } });
 
 // App Storage client - enable Replit Object Storage
 let storageClient: Client | null = null;

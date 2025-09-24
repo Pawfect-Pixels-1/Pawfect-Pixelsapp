@@ -6,6 +6,8 @@ import { realtimeTransformImageHandler, setRealtimeService } from "./services/re
 import { uploadMiddleware } from "./middleware/upload";
 import { registerHandler, loginHandler, logoutHandler, getCurrentUserHandler, requireAuth, optionalAuth } from "./auth";
 import { storage, fileStorage } from "./storage";
+import { billingRouter } from "./routes/billing";
+import { webhookRouter } from "./routes/webhook";
 import RealtimeService from "./websocket";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -263,6 +265,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: 'Failed to get analytics' });
     }
   });
+
+  // Billing routes
+  app.use("/api/billing", billingRouter);
+  app.use("/api/billing", webhookRouter);
 
   // Health check endpoint
   app.get("/api/health", (req, res) => {

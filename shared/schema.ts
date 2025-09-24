@@ -87,6 +87,16 @@ export const shareEvents = pgTable("share_events", {
   timestamp: timestamp("timestamp").defaultNow().notNull(),
 });
 
+/** ───────────────────────────────────────────────────────────
+ *  DB: processed_webhook_events - Track processed Stripe webhook events for idempotency
+ *  ─────────────────────────────────────────────────────────── */
+export const processedWebhookEvents = pgTable("processed_webhook_events", {
+  id: serial("id").primaryKey(),
+  eventId: text("event_id").notNull().unique(),
+  eventType: varchar("event_type", { length: 50 }).notNull(),
+  processedAt: timestamp("processed_at").defaultNow().notNull(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   transformations: many(transformations),

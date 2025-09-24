@@ -98,6 +98,7 @@
     "recharts": "^2.13.0",
     "replicate": "^1.1.0",
     "sonner": "^1.7.1",
+    "stripe": "^18.5.0",
     "tailwind-merge": "^2.5.4",
     "tailwind-scrollbar": "^3.1.0",
     "tailwindcss-animate": "^1.0.7",

@@ -14,6 +14,9 @@ const app = express();
 // Set to 1 for Replit which uses one layer of reverse proxy
 app.set('trust proxy', 1);
 
+// Stripe webhook endpoint needs raw body - must be before express.json()
+app.use('/api/billing/webhook', express.raw({type: 'application/json'}));
+
 // Security middleware - Helmet for various HTTP headers
 app.use(helmet({
   contentSecurityPolicy: {

@@ -7,11 +7,7 @@ import { insertUserSchema } from '@shared/schema';
 declare global {
   namespace Express {
     interface Request {
-      user?: {
-        id: number;
-        username: string;
-        email?: string;
-      };
+      user?: import('../shared/schema').User;
     }
   }
 }
@@ -36,11 +32,7 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
       return res.status(401).json({ error: 'Invalid session' });
     }
 
-    req.user = {
-      id: user.id,
-      username: user.username,
-      email: user.email || undefined,
-    };
+    req.user = user;
     
     next();
   } catch (error) {
@@ -55,11 +47,7 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
         try {
             const user = await storage.getUser(req.session.userId);
             if (user) {
-                req.user = {
-                    id: user.id,
-                    username: user.username,
-                    email: user.email || undefined,
-                };
+                req.user = user;
             }
         } catch (error) {
             console.error('Optional auth error:', error);
