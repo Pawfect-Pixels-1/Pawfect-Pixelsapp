@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, varchar, jsonb, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, varchar, jsonb, integer, boolean, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations, sql } from "drizzle-orm";
@@ -13,6 +13,19 @@ export const users = pgTable("users", {
   email: text("email").unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  
+  // Billing and subscription fields
+  plan: varchar("plan", { length: 20 }).default("trial").notNull(),
+  trialStartedAt: timestamp("trial_started_at").defaultNow(),
+  trialEndsAt: timestamp("trial_ends_at"),
+  dailyCreditsCap: integer("daily_credits_cap").default(10),
+  dailyCreditsUsed: integer("daily_credits_used").default(0),
+  creditsBalance: integer("credits_balance").default(0),
+  includedCreditsThisCycle: integer("included_credits_this_cycle").default(0),
+  lastDailyRefreshAt: date("last_daily_refresh_at"),
+  stripeCustomerId: text("stripe_customer_id").unique(),
+  stripeSubscriptionId: text("stripe_subscription_id").unique(),
+  isPriorityQueue: boolean("is_priority_queue").default(false),
 });
 
 /** ───────────────────────────────────────────────────────────
