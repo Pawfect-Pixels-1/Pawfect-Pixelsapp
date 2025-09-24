@@ -1,0 +1,53 @@
+Credit Packs (one-time)
+	•	100 credits → $4.99
+	•	500 credits → $19.99
+	•	2000 credits → $69.99
+
+⸻
+
+What to Build (Stripe + App)
+	1.	Stripe products/prices
+
+	•	Create 3 subscription products (Basic/Advanced/Premium) with monthly recurring prices above.
+	•	Create 3 one-time products for credit packs with prices above.
+	•	Return and store price_ids in config.
+
+	2.	Server endpoints
+
+	•	POST /api/billing/checkout
+Body: { type: "subscription" | "credits", priceId: string, successUrl, cancelUrl }
+Action: Create Stripe Checkout Session (Mode = subscription or payment). For credit packs, on success, increment creditsBalance.
+	•	POST /api/billing/portal → Stripe billing portal session.
+	•	POST /api/billing/webhook
+	•	On checkout.session.completed (one-time): credit packs → add credits.
+	•	On customer.subscription.created|updated|deleted: set plan, set included monthly credits (do not top-up; included credits refresh monthly), set isPriorityQueue for Premium.
+	•	GET /api/usage/me
+Returns: { plan, trialEndsAt, dailyCreditsRemaining, creditsBalance, includedCreditsThisCycle, rateLimitRemaining, allowedVideoModels, caps }.
+
+	3.	DB fields (users)
+
+	•	plan: "trial"|"basic"|"advanced"|"premium" (default “trial”)
+	•	trialStartedAt, trialEndsAt
+	•	dailyCreditsCap (derive from trial 10/day only for trial)
+	•	dailyCreditsUsed (reset daily)
+	•	creditsBalance (top-up credits)
+	•	includedCreditsThisCycle (counter reset monthly via webhook or cron)
+	•	lastDailyRefreshAt, stripeCustomerId, stripeSubscriptionId, isPriorityQueue
+
+	4.	Enforcement middleware
+
+	•	Debit before inference; refund on failure.
+	•	Trial: block video; limit styles to basic; HD only.
+	•	Plan gates (table above).
+	•	Video clamps: apply per-plan seconds, fps, AR before calling Replicate.
+	•	Costing:
+	•	image_to_image → 4 credits each
+	•	video_generation → model === "kling" → 5 * seconds; model === "aleph" → 18 * seconds
+	•	Debit order: use included monthly credits first (counter), then daily (trial only), then creditsBalance (packs).
+	•	Rate limit/hour: Basic 10, Advanced 50, Premium 150, Trial 6.
+
+	5.	Frontend wiring
+
+	•	Pricing page using the table above; Stripe Checkout buttons for each plan/pack.
+	•	Gates in UI: disable locked styles/features; show Upgrade or Buy Credits CTA on FEATURE_LOCKED / INSUFFICIENT_CREDITS.
+	•	Account widget: plan, credits (included vs. balance), trial countdown, upgrade/top-up actions.
