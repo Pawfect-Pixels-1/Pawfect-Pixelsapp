@@ -4,29 +4,37 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Coins, Clock, Zap, Crown } from 'lucide-react';
-import type { UsageInfo } from '@/lib/stores/useBilling';
+import type { UsageInfo, PlanConfig } from '@/lib/stores/useBilling';
 
 interface UsageWidgetProps {
   usage: UsageInfo;
+  currentPlan?: PlanConfig;
   onUpgrade: () => void;
   onBuyCredits: () => void;
 }
 
-export function UsageWidget({ usage, onUpgrade, onBuyCredits }: UsageWidgetProps) {
+export function UsageWidget({ usage, currentPlan, onUpgrade, onBuyCredits }: UsageWidgetProps) {
   const isTrialUser = usage.plan === 'trial';
   const isLowCredits = usage.creditsBalance < 10;
-  const isLowDailyCredits = usage.dailyCreditsRemaining < 5;
+  
+  // Get daily limit from plan config or fallback
+  const dailyLimit = currentPlan?.daily_credits || 10;
+  const isLowDailyCredits = usage.dailyCreditsRemaining < (dailyLimit * 0.2);
   
   const trialDaysLeft = usage.trialEndsAt ? 
     Math.max(0, Math.ceil((new Date(usage.trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
 
   const getDailyProgress = () => {
     if (usage.plan === 'trial') {
-      const trialLimit = 10; // From billing config
-      return ((trialLimit - usage.dailyCreditsRemaining) / trialLimit) * 100;
+      return ((dailyLimit - usage.dailyCreditsRemaining) / dailyLimit) * 100;
     }
     // For paid plans, we don't have a fixed daily limit in the UI
     return 0;
+  };
+
+  const getMonthlyCreditsUsed = () => {
+    if (!currentPlan || isTrialUser) return null;
+    return currentPlan.included_credits - usage.includedCreditsThisCycle;
   };
 
   const getPlanDisplayName = (plan: string) => {
@@ -84,7 +92,7 @@ export function UsageWidget({ usage, onUpgrade, onBuyCredits }: UsageWidgetProps
                 <span className="font-semibold">Daily Credits</span>
               </div>
               <span className={`font-bold ${isLowDailyCredits ? 'text-red-600' : 'text-green-600'}`}>
-                {usage.dailyCreditsRemaining}/10
+                {usage.dailyCreditsRemaining}/{dailyLimit}
               </span>
             </div>
             <Progress value={getDailyProgress()} className="h-2" />
@@ -113,9 +121,9 @@ export function UsageWidget({ usage, onUpgrade, onBuyCredits }: UsageWidgetProps
         )}
 
         {/* Monthly Credits (for paid plans) */}
-        {!isTrialUser && (
+        {!isTrialUser && currentPlan && (
           <div className="text-xs text-gray-600">
-            💰 {usage.includedCreditsThisCycle}/{usage.includedCreditsThisCycle} monthly credits used
+            💰 {getMonthlyCreditsUsed()}/{currentPlan.included_credits} monthly credits used
           </div>
         )}
 

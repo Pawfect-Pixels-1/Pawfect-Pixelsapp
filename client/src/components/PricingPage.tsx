@@ -49,7 +49,8 @@ export function PricingPage({ onBack }: PricingPageProps) {
     }
   };
 
-  const planArray = Object.values(plans);
+  // Sort plans by price for consistent ordering
+  const planArray = Object.values(plans).sort((a, b) => a.price - b.price);
   const isTrialUser = usage?.plan === 'trial';
 
   return (
@@ -82,6 +83,7 @@ export function PricingPage({ onBack }: PricingPageProps) {
             {usage ? (
               <UsageWidget
                 usage={usage}
+                currentPlan={usage.plan !== 'trial' ? plans[usage.plan] : undefined}
                 onUpgrade={() => setActiveTab('plans')}
                 onBuyCredits={() => setActiveTab('credits')}
               />
@@ -153,12 +155,12 @@ export function PricingPage({ onBack }: PricingPageProps) {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {planArray
                       .filter(plan => plan.name !== 'trial')
-                      .map((plan, index) => (
+                      .map((plan) => (
                         <PricingCard
                           key={plan.name}
                           plan={plan}
                           currentPlan={usage?.plan}
-                          isPopular={index === 1} // Advanced plan
+                          isPopular={plan.name === 'advanced'} // Mark Advanced plan as popular
                           onSelect={handlePlanSelect}
                           isLoading={isCreatingCheckout}
                         />

@@ -9,12 +9,14 @@ import { PricingPage } from "./components/PricingPage";
 import WelcomePage from "./components/WelcomePage";
 import { useTransformation } from "./lib/stores/useTransformation";
 import { useAuth } from "./lib/stores/useAuth";
+import { useBilling } from "./lib/stores/useBilling";
 import { Card } from "./components/ui/card";
 
 const queryClient = new QueryClient();
 
 function AppContent() {
   const { user, isLoading } = useAuth();
+  const { handlePostCheckout } = useBilling();
   const { 
     uploadedImage, 
     transformedImage, 
@@ -23,6 +25,13 @@ function AppContent() {
     currentOperation 
   } = useTransformation();
   const [currentView, setCurrentView] = useState<'studio' | 'dashboard' | 'pricing'>('studio');
+
+  // Handle post-checkout redirect on mount
+  React.useEffect(() => {
+    if (user) {
+      handlePostCheckout();
+    }
+  }, [user, handlePostCheckout]);
 
   // Show loading state while checking authentication
   if (isLoading) {

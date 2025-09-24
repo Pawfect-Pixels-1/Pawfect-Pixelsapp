@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { subscribeWithSelector } from 'zustand/middleware';
 
 export interface PlanConfig {
   name: string;
@@ -61,10 +60,10 @@ interface BillingState {
   createCheckoutSession: (type: 'subscription' | 'credits', planOrPack: string) => Promise<string | null>;
   refreshUsage: () => Promise<void>;
   deductCredits: (amount: number) => void;
+  handlePostCheckout: () => Promise<void>;
 }
 
-export const useBilling = create<BillingState>()(
-  subscribeWithSelector((set, get) => ({
+export const useBilling = create<BillingState>((set, get) => ({
     // Initial state
     usage: null,
     plans: {},
@@ -163,5 +162,31 @@ export const useBilling = create<BillingState>()(
         });
       }
     },
-  }))
+
+    // Handle post-checkout refresh and success detection
+    handlePostCheckout: async () => {
+      const { fetchUsage } = get();
+      
+      // Check URL params for success/cancel status
+      const urlParams = new URLSearchParams(window.location.search);
+      const isSuccess = urlParams.has('success');
+      const isCanceled = urlParams.has('canceled');
+      
+      if (isSuccess) {
+        // Refresh usage data after successful purchase
+        await fetchUsage();
+        
+        // Clear URL params
+        window.history.replaceState({}, document.title, window.location.pathname);
+        
+        // Could show success toast here
+        console.log('✅ Purchase completed successfully');
+      } else if (isCanceled) {
+        // Clear URL params
+        window.history.replaceState({}, document.title, window.location.pathname);
+        
+        console.log('❌ Purchase was canceled');
+      }
+    },
+  })
 );
