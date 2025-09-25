@@ -148,7 +148,7 @@ router.get("/usage/me", requireAuth, async (req, res) => {
         await db.update(users)
           .set({
             dailyCreditsUsed: 0,
-            lastDailyRefreshAt: new Date(), // ✅ store a Date, not a string
+            lastDailyRefreshAt: new Date().toISOString().split('T')[0], // Convert Date to YYYY-MM-DD string
           })
           .where(eq(users.id, user.id));
       } else {
