@@ -244,8 +244,8 @@ export function WelcomePricingSection({ onGetStarted }: WelcomePricingSectionPro
                 </ul>
 
                 <div className="text-xs text-gray-600 pt-2 border-t border-gray-200">
-                  <div>💰 {plan.included_credits.toLocaleString()} credits/month</div>
-                  <div>⚡ {plan.daily_credits} daily credits limit</div>
+                  <div>💰 {(plan.included_credits || 0).toLocaleString()} credits/month</div>
+                  <div>⚡ {plan.daily_credits || 0} daily credits limit</div>
                   {plan.is_priority_queue && (
                     <div>🚀 Priority processing queue</div>
                   )}
