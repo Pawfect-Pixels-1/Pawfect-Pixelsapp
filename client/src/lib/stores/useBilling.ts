@@ -135,11 +135,14 @@ export const useBilling = create<BillingState>((set, get) => ({
           const data = await response.json();
           return data.url;
         } else {
-          console.error('Failed to create checkout session');
+          const errorData = await response.json().catch(() => ({}));
+          console.error('Failed to create checkout session:', errorData.error || 'Unknown error');
+          alert(errorData.error || 'Unable to process payment. Please try again or contact support.');
           return null;
         }
       } catch (error) {
         console.error('Error creating checkout session:', error);
+        alert('Network error while processing payment. Please check your connection and try again.');
         return null;
       } finally {
         set({ isCreatingCheckout: false });
