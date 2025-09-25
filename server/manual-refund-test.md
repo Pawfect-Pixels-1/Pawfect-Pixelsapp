@@ -123,50 +123,148 @@ curl -X POST http://localhost:5000/api/video/gen4-aleph \
 - After reservation: dailyCreditsUsed=50, balance=96
 - After refund: dailyCreditsUsed=0, balance=100
 
-### Test 6: Prediction Creation Failure Refund
+### Test 6: Prediction Creation Failure Refund (Deterministic)
 
-**Setup**: Force prediction creation failure to test immediate refund path
+**Setup**: Use dev endpoint to force prediction creation failure
 
 ```bash
-# Method 1: Use invalid/non-existent model to force creation failure
-# Temporarily modify the model name in the handler or use invalid API token
+# Step 1: Enable creation failure injection
+curl -X POST http://localhost:5000/api/dev/set-test-injection \
+  -H "Content-Type: application/json" \
+  -d '{"forceCreateFailure": true}'
 
-# Method 2: Use invalid image format to trigger creation failure
+# Step 2: Start transformation (will fail during prediction creation)
 curl -X POST http://localhost:5000/api/transform \
   -b cookies.txt \
-  -F "image=@/path/to/invalid.txt" \
+  -F "image=@/path/to/test/image.jpg" \
   -F "style=vibrant" \
   -F "num_images=1"
 
-# Check credits immediately - should be refunded instantly
+# Step 3: Check credits immediately - should be refunded instantly
 curl -X GET http://localhost:5000/api/auth/me \
   -b cookies.txt
+
+# Step 4: Disable injection for other tests
+curl -X POST http://localhost:5000/api/dev/set-test-injection \
+  -H "Content-Type: application/json" \
+  -d '{"forceCreateFailure": false}'
 ```
 
 **Expected Result**:
 - Credits should be reserved initially
 - Credits should be immediately refunded when prediction creation fails
 - Operation status should be marked as failed in database
+- Error message should indicate "TEST: Injected prediction creation failure"
 
-### Test 7: Invalid Output Format Refund
+### Test 7: Invalid Output Format Refund (Deterministic)
 
-**Setup**: This tests the refund path when prediction succeeds but output format is invalid
+**Setup**: Use dev endpoint to force invalid output format
 
 ```bash
-# This is harder to trigger manually, but can be tested by:
-# 1. Monitoring for naturally occurring invalid outputs
-# 2. Temporarily modifying output validation logic to be more strict
-# 3. Using edge-case inputs that might produce unexpected outputs
+# Step 1: Enable invalid output injection
+curl -X POST http://localhost:5000/api/dev/set-test-injection \
+  -H "Content-Type: application/json" \
+  -d '{"forceInvalidOutput": true}'
 
-# Start normal transformation and monitor logs for invalid output scenarios
+# Step 2: Start transformation (will succeed but produce invalid output)
 curl -X POST http://localhost:5000/api/transform \
   -b cookies.txt \
-  -F "image=@/path/to/edge-case-image.jpg" \
+  -F "image=@/path/to/test/image.jpg" \
   -F "style=vibrant" \
   -F "num_images=1"
+
+# Step 3: Check credits after failure - should be refunded
+curl -X GET http://localhost:5000/api/auth/me \
+  -b cookies.txt
+
+# Step 4: Disable injection for other tests
+curl -X POST http://localhost:5000/api/dev/set-test-injection \
+  -H "Content-Type: application/json" \
+  -d '{"forceInvalidOutput": false}'
 ```
 
-### Test 8: Concurrent Operations (Race Condition Test)
+**Expected Result**:
+- Credits should be reserved initially
+- Prediction should succeed but output validation should fail
+- Credits should be refunded when invalid output is detected
+- Error message should indicate "Invalid output format from AI service"
+
+### Test 8: Prediction Status Failed Refund (Deterministic)
+
+**Setup**: Use dev endpoint to force prediction to report failed status
+
+```bash
+# Step 1: Enable prediction failure injection
+curl -X POST http://localhost:5000/api/dev/set-test-injection \
+  -H "Content-Type: application/json" \
+  -d '{"forcePredictionFailure": true}'
+
+# Step 2: Start transformation (will succeed initially, then fail during status check)
+curl -X POST http://localhost:5000/api/transform \
+  -b cookies.txt \
+  -F "image=@/path/to/test/image.jpg" \
+  -F "style=vibrant" \
+  -F "num_images=1"
+
+# Step 3: Check status (will trigger failure injection) 
+curl -X GET http://localhost:5000/api/status/OPERATION_ID_HERE \
+  -b cookies.txt
+
+# Step 4: Check credits after failure - should be refunded
+curl -X GET http://localhost:5000/api/auth/me \
+  -b cookies.txt
+
+# Step 5: Disable injection for other tests
+curl -X POST http://localhost:5000/api/dev/set-test-injection \
+  -H "Content-Type: application/json" \
+  -d '{"forcePredictionFailure": false}'
+```
+
+**Expected Result**:
+- Credits should be reserved initially during transformation
+- Status check should trigger prediction failure injection
+- Credits should be refunded when prediction failure is detected
+- Error message should indicate "TEST: Injected prediction failure in status check"
+
+### Test 9: Timeout Simulation Refund (Deterministic)
+
+**Setup**: Use dev endpoint to simulate timeout during status polling
+
+```bash
+# Step 1: Enable timeout injection
+curl -X POST http://localhost:5000/api/dev/set-test-injection \
+  -H "Content-Type: application/json" \
+  -d '{"forceTimeout": true}'
+
+# Step 2: Start transformation (will succeed initially)
+curl -X POST http://localhost:5000/api/transform \
+  -b cookies.txt \
+  -F "image=@/path/to/test/image.jpg" \
+  -F "style=vibrant" \
+  -F "num_images=1"
+
+# Step 3: Check status (will trigger timeout simulation)
+# Note: This will take 10+ seconds due to artificial delay
+curl -X GET http://localhost:5000/api/status/OPERATION_ID_HERE \
+  -b cookies.txt
+
+# Step 4: Check credits after timeout - should be refunded
+curl -X GET http://localhost:5000/api/auth/me \
+  -b cookies.txt
+
+# Step 5: Disable injection for other tests
+curl -X POST http://localhost:5000/api/dev/set-test-injection \
+  -H "Content-Type: application/json" \
+  -d '{"forceTimeout": false}'
+```
+
+**Expected Result**:
+- Credits should be reserved initially during transformation
+- Status check should trigger timeout simulation (10 second delay)
+- Client should eventually timeout and trigger error handling
+- Credits should be refunded when timeout is detected
+
+### Test 10: Concurrent Operations (Race Condition Test)
 
 **Setup**: Test multiple simultaneous operations to verify no overcommit
 
@@ -222,7 +320,31 @@ SELECT id, status, "creditsDeducted" FROM operations WHERE id = 'operation_id_he
 
 ## Monitoring Refunds
 
-### Check Database Operations Table
+### Using Dev Endpoints (Recommended)
+
+```bash
+# Get specific operation details
+curl -X GET http://localhost:5000/api/dev/operation/OPERATION_ID_HERE \
+  -b cookies.txt
+
+# Get recent operations for a user
+curl -X GET http://localhost:5000/api/dev/user/USER_ID_HERE/operations?limit=5 \
+  -b cookies.txt
+
+# Set up user credit state for testing
+curl -X POST http://localhost:5000/api/dev/set-user-credits \
+  -H "Content-Type: application/json" \
+  -d '{"userId": USER_ID, "dailyCreditsUsed": 10, "creditsBalance": 20, "dailyCreditsCap": 50}' \
+  -b cookies.txt
+
+# Enable/disable test injection
+curl -X POST http://localhost:5000/api/dev/set-test-injection \
+  -H "Content-Type: application/json" \
+  -d '{"forceCreateFailure": true, "forceInvalidOutput": false}' \
+  -b cookies.txt
+```
+
+### Alternative: Direct Database Queries
 
 ```sql
 -- View recent operations and their credit allocations (using correct camelCase column names)

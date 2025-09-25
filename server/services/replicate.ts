@@ -8,6 +8,7 @@ import { users, operations } from "../../shared/schema";
 import { eq, sql, and } from "drizzle-orm";
 import fetch from "node-fetch";
 import { randomUUID } from "crypto";
+import { shouldInjectCreateFailure, shouldInjectInvalidOutput, shouldInjectPredictionFailure, shouldInjectTimeout } from "../dev-endpoints";
 
 if (!process.env.REPLICATE_API_TOKEN) {
   console.error("❌ REPLICATE_API_TOKEN is required but not set in environment");
@@ -344,6 +345,11 @@ export async function transformImageHandler(req: Request, res: Response) {
     // Now create prediction after credits are reserved
     let prediction;
     try {
+      // Dev-only: Check for failure injection
+      if (shouldInjectCreateFailure()) {
+        throw new Error("TEST: Injected prediction creation failure");
+      }
+      
       prediction = await replicate.predictions.create({
         version: KONText_VERSION,
         input,
@@ -434,10 +440,14 @@ export async function transformImageHandler(req: Request, res: Response) {
 
     // Validate and safely extract output URLs
     let replicateUrls: string[];
-    if (Array.isArray(finalPrediction.output)) {
-      replicateUrls = finalPrediction.output.filter((url): url is string => typeof url === 'string');
-    } else if (finalPrediction.output && typeof finalPrediction.output === 'string') {
-      replicateUrls = [finalPrediction.output];
+    
+    // Dev-only: Inject invalid output to force validation failure
+    const outputToValidate = shouldInjectInvalidOutput() ? { invalid: true } : finalPrediction.output;
+    
+    if (Array.isArray(outputToValidate)) {
+      replicateUrls = outputToValidate.filter((url): url is string => typeof url === 'string');
+    } else if (outputToValidate && typeof outputToValidate === 'string') {
+      replicateUrls = [outputToValidate];
     } else {
       console.error('❌ Invalid prediction output format:', finalPrediction.output);
       // Mark operation as failed in database and refund credits
@@ -634,6 +644,11 @@ export async function fluxKontextProHandler(req: Request, res: Response) {
     // Now create prediction after credits are reserved
     let prediction;
     try {
+      // Dev-only: Check for failure injection
+      if (shouldInjectCreateFailure()) {
+        throw new Error("TEST: Injected prediction creation failure");
+      }
+      
       prediction = await replicate.predictions.create({
         model: "black-forest-labs/flux-kontext-pro",
         input,
@@ -678,10 +693,20 @@ export async function fluxKontextProHandler(req: Request, res: Response) {
 
     while (finalPrediction.status === "starting" || finalPrediction.status === "processing") {
       if (Date.now() - start > timeoutMs) {
+        // Mark operation as failed and refund credits
+        await db.update(operations)
+          .set({
+            status: 'failed',
+            failedAt: new Date()
+          })
+          .where(eq(operations.id, operationId));
+        
+        await refundCreditsForOperation(operationId);
+        
         return res.status(408).json({
           success: false,
           error: "Request timed out. Please try again.",
-          operationId: prediction.id,
+          operationId,
           model: "flux-kontext-pro",
         });
       }
@@ -693,6 +718,17 @@ export async function fluxKontextProHandler(req: Request, res: Response) {
     if (finalPrediction.status !== "succeeded") {
       const error = (finalPrediction as any).error || "FLUX.1 Kontext Pro transformation failed";
       console.error("❌ FLUX.1 Kontext Pro transformation failed:", error);
+      
+      // Mark operation as failed in database and refund credits
+      await db.update(operations)
+        .set({
+          status: 'failed',
+          failedAt: new Date()
+        })
+        .where(eq(operations.id, operationId));
+      
+      await refundCreditsForOperation(operationId);
+      
       operationStore.set(prediction.id, {
         id: prediction.id,
         type: "transform",
@@ -705,23 +741,38 @@ export async function fluxKontextProHandler(req: Request, res: Response) {
       return res.status(500).json({ 
         success: false, 
         error, 
-        operationId: prediction.id,
+        operationId,
         model: "flux-kontext-pro"
       });
     }
 
     // Extract output URL (FLUX.1 Kontext Pro typically returns a single image)
     let replicateUrls: string[];
-    if (Array.isArray(finalPrediction.output)) {
-      replicateUrls = finalPrediction.output.filter((url): url is string => typeof url === 'string');
-    } else if (finalPrediction.output && typeof finalPrediction.output === 'string') {
-      replicateUrls = [finalPrediction.output];
+    
+    // Dev-only: Inject invalid output to force validation failure
+    const outputToValidate = shouldInjectInvalidOutput() ? { invalid: true } : finalPrediction.output;
+    
+    if (Array.isArray(outputToValidate)) {
+      replicateUrls = outputToValidate.filter((url): url is string => typeof url === 'string');
+    } else if (outputToValidate && typeof outputToValidate === 'string') {
+      replicateUrls = [outputToValidate];
     } else {
       console.error('❌ Invalid FLUX.1 Kontext Pro output format:', finalPrediction.output);
+      
+      // Mark operation as failed in database and refund credits
+      await db.update(operations)
+        .set({
+          status: 'failed',
+          failedAt: new Date()
+        })
+        .where(eq(operations.id, operationId));
+      
+      await refundCreditsForOperation(operationId);
+      
       return res.status(500).json({ 
         success: false, 
         error: 'Invalid output format from FLUX.1 Kontext Pro service', 
-        operationId: prediction.id,
+        operationId,
         model: "flux-kontext-pro"
       });
     }
@@ -901,6 +952,11 @@ export async function generateVideoHandler(req: Request, res: Response) {
     // Now create prediction after credits are reserved
     let prediction;
     try {
+      // Dev-only: Check for failure injection
+      if (shouldInjectCreateFailure()) {
+        throw new Error("TEST: Injected prediction creation failure");
+      }
+      
       prediction = await replicate.predictions.create({
         model: "kwaivgi/kling-v1.6-standard",
         input: {
@@ -1112,6 +1168,11 @@ export async function gen4AlephHandler(req: Request, res: Response) {
     // Now create prediction after credits are reserved
     let prediction;
     try {
+      // Dev-only: Check for failure injection
+      if (shouldInjectCreateFailure()) {
+        throw new Error("TEST: Injected prediction creation failure");
+      }
+      
       prediction = await replicate.predictions.create({
         model: "runwayml/gen4-aleph@latest", // Pin to latest stable version
         input,
@@ -1214,10 +1275,14 @@ export async function gen4AlephHandler(req: Request, res: Response) {
 
     // Extract output URL (Gen4-Aleph returns a single video URL)
     let outputVideoUrl: string;
-    if (typeof finalPrediction.output === 'string') {
-      outputVideoUrl = finalPrediction.output;
-    } else if (Array.isArray(finalPrediction.output) && finalPrediction.output.length > 0) {
-      outputVideoUrl = finalPrediction.output[0];
+    
+    // Dev-only: Inject invalid output to force validation failure
+    const outputToValidate = shouldInjectInvalidOutput() ? { invalid: true } : finalPrediction.output;
+    
+    if (typeof outputToValidate === 'string') {
+      outputVideoUrl = outputToValidate;
+    } else if (Array.isArray(outputToValidate) && outputToValidate.length > 0) {
+      outputVideoUrl = outputToValidate[0];
     } else {
       console.error('❌ Invalid Gen4-Aleph output format:', finalPrediction.output);
       // Mark operation as failed in database and refund credits
@@ -1377,6 +1442,67 @@ export async function getStatusHandler(req: Request, res: Response) {
     if (dbOperation.status === "processing" && dbOperation.predictionId) {
       try {
         const prediction = await replicate.predictions.get(dbOperation.predictionId);
+        
+        // Dev-only: Inject prediction failure with refund
+        if (shouldInjectPredictionFailure()) {
+          console.log('🧪 TEST: Injected prediction failure in status check');
+          
+          // Mark operation as failed and refund credits
+          await db.update(operations)
+            .set({
+              status: 'failed',
+              failedAt: new Date()
+            })
+            .where(eq(operations.id, operationId));
+            
+          // Refund credits since operation failed
+          await refundCreditsForOperation(operationId);
+          
+          return res.json({ 
+            success: true, 
+            operation: {
+              id: operationId,
+              type: dbOperation.type,
+              status: 'failed',
+              error: 'TEST: Injected prediction failure in status check',
+              createdAt: dbOperation.createdAt,
+              failedAt: new Date(),
+              userId: dbOperation.userId,
+              model: dbOperation.model
+            }
+          });
+        }
+
+        // Dev-only: Inject timeout with refund
+        if (shouldInjectTimeout()) {
+          console.log('🧪 TEST: Injecting timeout simulation in status check');
+          
+          // Mark operation as failed and refund credits
+          await db.update(operations)
+            .set({
+              status: 'failed',
+              failedAt: new Date()
+            })
+            .where(eq(operations.id, operationId));
+            
+          // Refund credits since operation timed out
+          await refundCreditsForOperation(operationId);
+          
+          return res.json({ 
+            success: true, 
+            operation: {
+              id: operationId,
+              type: dbOperation.type,
+              status: 'failed',
+              error: 'TEST: Injected timeout simulation in status check',
+              createdAt: dbOperation.createdAt,
+              failedAt: new Date(),
+              userId: dbOperation.userId,
+              model: dbOperation.model
+            }
+          });
+        }
+        
         if (prediction.status === "succeeded") {
           let outs: string[];
           if (Array.isArray(prediction.output)) {

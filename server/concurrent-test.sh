@@ -31,10 +31,25 @@ curl -s -X POST "$BASE_URL/api/auth/login" \
   -c cookies.txt \
   -o /dev/null
 
-# Step 3: Check initial credits
-echo "3️⃣ Checking initial credits..."
+# Step 3: Check initial credits and set up test conditions
+echo "3️⃣ Setting up test conditions..."
+USER_ID=$(curl -s -X GET "$BASE_URL/api/auth/me" -b cookies.txt | jq -r '.user.id')
 INITIAL_CREDITS=$(curl -s -X GET "$BASE_URL/api/auth/me" -b cookies.txt | jq -r '.user.dailyCreditsUsed // 0')
+echo "  User ID: $USER_ID"
 echo "  Initial dailyCreditsUsed: $INITIAL_CREDITS"
+
+# Set user to have exactly 10 credits available (dailyCreditsCap=10, dailyCreditsUsed=0)
+echo "  Setting user to have exactly 10 credits available..."
+curl -s -X POST "$BASE_URL/api/dev/set-user-credits" \
+  -H "Content-Type: application/json" \
+  -d "{\"userId\": $USER_ID, \"dailyCreditsUsed\": 0, \"creditsBalance\": 0, \"dailyCreditsCap\": 10}" \
+  -o /dev/null
+
+# Verify the setup
+UPDATED_CREDITS=$(curl -s -X GET "$BASE_URL/api/auth/me" -b cookies.txt | jq -r '.user.dailyCreditsUsed // 0')
+CREDITS_CAP=$(curl -s -X GET "$BASE_URL/api/auth/me" -b cookies.txt | jq -r '.user.dailyCreditsCap // 0')
+CREDITS_BALANCE=$(curl -s -X GET "$BASE_URL/api/auth/me" -b cookies.txt | jq -r '.user.creditsBalance // 0')
+echo "  Updated setup: dailyUsed=$UPDATED_CREDITS, cap=$CREDITS_CAP, balance=$CREDITS_BALANCE"
 
 # Step 4: Create a simple test image if it doesn't exist
 if [ ! -f "$TEST_IMAGE" ]; then
@@ -106,9 +121,9 @@ for i in {1..3}; do
   fi
 done
 
-# Check final credits
+# Check final credits  
 FINAL_CREDITS=$(curl -s -X GET "$BASE_URL/api/auth/me" -b cookies.txt | jq -r '.user.dailyCreditsUsed // 0')
-CREDITS_USED=$((FINAL_CREDITS - INITIAL_CREDITS))
+CREDITS_USED=$((FINAL_CREDITS - UPDATED_CREDITS))
 
 echo "7️⃣ Test Results:"
 echo "  Successful operations: $SUCCESS_COUNT"
@@ -118,12 +133,80 @@ echo "  Final dailyCreditsUsed: $FINAL_CREDITS"
 
 # Validate results
 echo "8️⃣ Validation:"
+
+# With 10 credit cap and 4 credits per operation:
+# - 2 operations should succeed (8 credits total)
+# - 1 operation should fail due to insufficient credits
+# - Final credits used should be 8
+
 if [ $SUCCESS_COUNT -eq 2 ] && [ $FAILURE_COUNT -eq 1 ] && [ $CREDITS_USED -eq 8 ]; then
   echo "  ✅ PASS: Exactly 2 operations succeeded, 1 failed, 8 credits used"
   echo "  ✅ PASS: No overcommit occurred, race conditions prevented"
+  echo "  ✅ PASS: User had 10 credits available, 2×4-credit operations succeeded"
 else
   echo "  ❌ FAIL: Expected 2 success, 1 failure, 8 credits used"
   echo "  ❌ FAIL: Actual: $SUCCESS_COUNT success, $FAILURE_COUNT failure, $CREDITS_USED credits"
+  echo "  ❌ FAIL: This indicates potential race condition or overcommit vulnerability"
+fi
+
+# Additional validation: Check operations in database
+echo "9️⃣ Database Validation:"
+echo "  Checking operations created for user $USER_ID..."
+OPERATIONS_RESPONSE=$(curl -s -X GET "$BASE_URL/api/dev/user/$USER_ID/operations?limit=5")
+OPERATIONS_COUNT=$(echo "$OPERATIONS_RESPONSE" | jq -r '.operations | length')
+echo "  Operations found in database: $OPERATIONS_COUNT"
+
+# Strengthen validation as per architect requirements
+if [ "$OPERATIONS_COUNT" -eq 2 ]; then
+  echo "  ✅ PASS: Exactly 2 operations found in database"
+  
+  # Check that no operation was double-charged
+  TOTAL_RESERVED_DAILY=$(echo "$OPERATIONS_RESPONSE" | jq -r '.operations | map(.dailyPortionReserved // 0) | add')
+  TOTAL_RESERVED_BALANCE=$(echo "$OPERATIONS_RESPONSE" | jq -r '.operations | map(.balancePortionReserved // 0) | add')
+  echo "  Total daily credits reserved: $TOTAL_RESERVED_DAILY"
+  echo "  Total balance credits reserved: $TOTAL_RESERVED_BALANCE"
+  
+  if [ "$TOTAL_RESERVED_DAILY" -eq 8 ] && [ "$TOTAL_RESERVED_BALANCE" -eq 0 ]; then
+    echo "  ✅ PASS: Credit reservation tracking is accurate"
+  else
+    echo "  ❌ FAIL: Unexpected credit reservation amounts"
+  fi
+  
+  # Check that only operations with creditsDeducted=true are successful
+  SUCCESSFUL_OPS=$(echo "$OPERATIONS_RESPONSE" | jq -r '[.operations[] | select(.creditsDeducted == true)] | length')
+  DEDUCTED_OPS=$(echo "$OPERATIONS_RESPONSE" | jq -r '[.operations[] | select(.creditsDeducted == true and .status == "completed")] | length')
+  echo "  Operations with creditsDeducted=true: $SUCCESSFUL_OPS"
+  echo "  Completed operations with creditsDeducted=true: $DEDUCTED_OPS"
+  
+  if [ "$SUCCESSFUL_OPS" -eq 2 ] && [ "$DEDUCTED_OPS" -eq 2 ]; then
+    echo "  ✅ PASS: Credit deduction matches completed operations"
+  else
+    echo "  ❌ FAIL: Unexpected credit deduction status"
+  fi
+else
+  echo "  ❌ FAIL: Expected exactly 2 operations in database, found: $OPERATIONS_COUNT"
+fi
+
+# Check if any operation failed due to insufficient credits
+echo "🔟 Failure Validation:"
+echo "  Checking failure responses for 'Insufficient credits' message..."
+INSUFFICIENT_FAILURES=0
+for i in 1 2 3; do
+  if [ -f "result${i}.json" ]; then
+    ERROR_MSG=$(jq -r '.error // ""' "result${i}.json")
+    if echo "$ERROR_MSG" | grep -q "Insufficient credits"; then
+      INSUFFICIENT_FAILURES=$((INSUFFICIENT_FAILURES + 1))
+      echo "  ✅ Request $i failed with 'Insufficient credits' message"
+    elif [ -n "$ERROR_MSG" ]; then
+      echo "  ⚠️  Request $i failed with different error: $ERROR_MSG"
+    fi
+  fi
+done
+
+if [ "$INSUFFICIENT_FAILURES" -eq 1 ]; then
+  echo "  ✅ PASS: Exactly 1 request failed due to insufficient credits"
+else
+  echo "  ❌ FAIL: Expected 1 insufficient credits failure, found: $INSUFFICIENT_FAILURES"
 fi
 
 # Cleanup

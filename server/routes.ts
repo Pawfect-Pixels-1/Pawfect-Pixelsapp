@@ -9,6 +9,7 @@ import { storage, fileStorage } from "./storage";
 import { billingRouter } from "./routes/billing";
 import { webhookRouter } from "./routes/webhook";
 import RealtimeService from "./websocket";
+import { setUserCreditsHandler, setTestInjectionHandler, getOperationHandler, getUserOperationsHandler } from "./dev-endpoints";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Create HTTP server
@@ -40,6 +41,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Status polling endpoint for long-running operations
   app.get("/api/status/:operationId", getStatusHandler);
+  
+  // Development-only testing endpoints
+  if (process.env.NODE_ENV !== 'production') {
+    app.post("/api/dev/set-user-credits", setUserCreditsHandler);
+    app.post("/api/dev/set-test-injection", setTestInjectionHandler);
+    app.get("/api/dev/operation/:operationId", getOperationHandler);
+    app.get("/api/dev/user/:userId/operations", getUserOperationsHandler);
+  }
   
   // User-specific routes (require authentication)
   app.get("/api/user/transformations", requireAuth, async (req, res) => {
