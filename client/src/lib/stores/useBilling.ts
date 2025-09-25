@@ -128,7 +128,12 @@ export const useBilling = create<BillingState>((set, get) => ({
             'Content-Type': 'application/json',
           },
           credentials: 'include',
-          body: JSON.stringify({ type, [type === 'subscription' ? 'plan' : 'creditPack']: planOrPack }),
+          body: JSON.stringify({ 
+            type, 
+            [type === 'subscription' ? 'plan' : 'creditPack']: planOrPack,
+            successUrl: `${window.location.origin}/?success=1`,
+            cancelUrl: `${window.location.origin}/?canceled=1`
+          }),
         });
 
         if (response.ok) {

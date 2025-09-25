@@ -33,6 +33,31 @@ router.post("/checkout", requireAuth, async (req, res) => {
     const body = parsed.data;
     const user = req.user!;
 
+    // Security: Validate and constrain redirect URLs to fixed allowed origins
+    if (!process.env.APP_ORIGIN) {
+      console.error("APP_ORIGIN environment variable is required for payment security");
+      return res.status(500).json({ error: "Payment system configuration error" });
+    }
+    
+    const canonicalOrigin = new URL(process.env.APP_ORIGIN).origin;
+    const allowedOrigins = [canonicalOrigin];
+    
+    const validateUrl = (url: string): boolean => {
+      try {
+        const parsed = new URL(url);
+        // Only allow allowed origins and root path (with any query params)
+        return allowedOrigins.includes(parsed.origin) && parsed.pathname === "/";
+      } catch {
+        return false;
+      }
+    };
+
+    if (!validateUrl(body.successUrl) || !validateUrl(body.cancelUrl)) {
+      return res.status(400).json({ 
+        error: "Invalid redirect URLs. Must be from allowed origins with root path only." 
+      });
+    }
+
     let priceId: string;
     let mode: "subscription" | "payment" = "payment";
 
@@ -102,11 +127,22 @@ router.post("/portal", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "No Stripe customer found. Please subscribe first." });
     }
 
-    const session = await stripe.billingPortal.sessions.create({
+    if (!process.env.APP_ORIGIN) {
+      console.error("APP_ORIGIN environment variable is required for billing portal security");
+      return res.status(500).json({ error: "Payment system configuration error" });
+    }
+    
+    const portalConfig: any = {
       customer: user.stripeCustomerId,
-      configuration: 'bpc_1SB7yrD1OI5Pfwv2imV9dPNP', // Custom portal configuration
-      return_url: `${req.protocol}://${req.get("host")}/`, // Always return to our app
-    });
+      return_url: process.env.APP_ORIGIN, // Use only fixed origin
+    };
+    
+    // Add configuration ID only if provided in environment
+    if (process.env.STRIPE_PORTAL_CONFIGURATION_ID) {
+      portalConfig.configuration = process.env.STRIPE_PORTAL_CONFIGURATION_ID;
+    }
+    
+    const session = await stripe.billingPortal.sessions.create(portalConfig);
 
     res.json({ success: true, url: session.url });
   } catch (error) {
