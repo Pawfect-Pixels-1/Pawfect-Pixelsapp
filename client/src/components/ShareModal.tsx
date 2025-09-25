@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -67,6 +67,9 @@ export function ShareModal({
             <Sparkles className="w-6 h-6 text-purple-600" />
             Your Creation is Ready!
           </DialogTitle>
+          <DialogDescription>
+            Share your AI-generated creation with the world or save it to your device.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">

@@ -30,7 +30,12 @@ export function WelcomePricingSection({ onGetStarted }: WelcomePricingSectionPro
         const response = await fetch('/api/billing/plans');
         if (response.ok) {
           const data = await response.json();
-          setPlans(data.plans);
+          // Ensure we have a valid plans object
+          if (data.success && data.plans && typeof data.plans === 'object') {
+            setPlans(data.plans);
+          } else {
+            console.log('Invalid plans data structure received');
+          }
         }
       } catch (error) {
         console.log('Could not fetch plans for welcome page');
@@ -95,7 +100,7 @@ export function WelcomePricingSection({ onGetStarted }: WelcomePricingSectionPro
   };
 
   const displayPlans = Object.keys(plans).length > 0 ? plans : fallbackPlans;
-  const planArray = Object.values(displayPlans).sort((a, b) => a.price - b.price);
+  const planArray = displayPlans ? Object.values(displayPlans).filter(Boolean).sort((a, b) => a.price - b.price) : [];
 
   const getPlanIcon = (planName: string) => {
     switch (planName) {
@@ -195,7 +200,7 @@ export function WelcomePricingSection({ onGetStarted }: WelcomePricingSectionPro
         </motion.div>
 
         {/* Paid Plans */}
-        {planArray.map((plan, index) => (
+        {planArray && planArray.length > 0 && planArray.map((plan, index) => (
           <motion.div
             key={plan.name}
             initial={{ opacity: 0, y: 20 }}
@@ -230,7 +235,7 @@ export function WelcomePricingSection({ onGetStarted }: WelcomePricingSectionPro
 
               <CardContent className="space-y-4">
                 <ul className="space-y-2">
-                  {plan.features.map((feature, featureIndex) => (
+                  {plan.features && plan.features.length > 0 && plan.features.map((feature, featureIndex) => (
                     <li key={featureIndex} className="flex items-start gap-2">
                       <Check className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
                       <span className="text-sm text-gray-700">{feature}</span>

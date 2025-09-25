@@ -198,4 +198,21 @@ router.get("/usage/me", requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/billing/plans
+ * Get available subscription plans and credit packs
+ */
+router.get("/plans", async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      plans: billingConfig.plans,
+      creditPacks: billingConfig.creditPacks
+    });
+  } catch (error) {
+    console.error("Failed to fetch plans:", error);
+    res.status(500).json({ error: "Failed to fetch plans" });
+  }
+});
+
 export const billingRouter = router;
