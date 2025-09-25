@@ -55,7 +55,7 @@ const TransformationControls: React.FC = () => {
   const [gen4AlephDuration, setGen4AlephDuration] = useState<number>(3); // Default 3 seconds, max 5
   
   // Selected options for character transformation
-  const [selectedStyle, setSelecatedStyle] = useState<StyleEnum>('Random');
+  const [selectedStyle, setSelectedStyle] = useState<StyleEnum>('Random');
   const [selectedPersona, setSelectedPersona] = useState<PersonaEnum>('Random');
   
   // Options for text-guided transformation (FLUX.1 Kontext Pro)
