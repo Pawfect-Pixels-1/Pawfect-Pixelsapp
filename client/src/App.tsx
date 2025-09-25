@@ -184,25 +184,35 @@ function AppContent() {
                           className="w-full h-full object-cover"
                         />
                       </div>
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => {
-                            const link = document.createElement('a');
-                            link.href = transformedImage;
-                            link.download = 'transformed-portrait.png';
-                            link.click();
-                          }}
-                          className="flex-1 bg-[#10B981] text-white py-2 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
-                        >
-                          Download
-                        </button>
-                        <ShareButton
-                          contentUrl={transformedImage}
-                          contentType="image"
-                          title="Check out my AI-transformed portrait!"
-                          description="Created with Portrait Studio's amazing AI transformation technology"
-                          onShare={(platform) => console.log(`Shared transformed image to ${platform}`)}
-                        />
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Share & Download</h4>
+                        </div>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => {
+                              const link = document.createElement('a');
+                              link.href = transformedImage;
+                              link.download = 'transformed-portrait.png';
+                              link.click();
+                            }}
+                            className="flex-1 bg-[#10B981] text-white py-3 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all flex items-center justify-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Download
+                          </button>
+                          <div className="flex-1">
+                            <ShareButton
+                              contentUrl={transformedImage}
+                              contentType="image"
+                              title="Check out my AI-transformed portrait!"
+                              description="Created with Portrait Studio's amazing AI transformation technology"
+                              onShare={(platform) => console.log(`Shared transformed image to ${platform}`)}
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -220,25 +230,35 @@ function AppContent() {
                           muted
                         />
                       </div>
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => {
-                            const link = document.createElement('a');
-                            link.href = generatedVideo;
-                            link.download = 'generated-video.mp4';
-                            link.click();
-                          }}
-                          className="flex-1 bg-[#F59E0B] text-white py-2 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
-                        >
-                          Download
-                        </button>
-                        <ShareButton
-                          contentUrl={generatedVideo}
-                          contentType="video"
-                          title="Check out my AI-generated video!"
-                          description="Watch this amazing AI-powered video transformation created with Portrait Studio"
-                          onShare={(platform) => console.log(`Shared generated video to ${platform}`)}
-                        />
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Share & Download</h4>
+                        </div>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => {
+                              const link = document.createElement('a');
+                              link.href = generatedVideo;
+                              link.download = 'generated-video.mp4';
+                              link.click();
+                            }}
+                            className="flex-1 bg-[#F59E0B] text-white py-3 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all flex items-center justify-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Download
+                          </button>
+                          <div className="flex-1">
+                            <ShareButton
+                              contentUrl={generatedVideo}
+                              contentType="video"
+                              title="Check out my AI-generated video!"
+                              description="Watch this amazing AI-powered video transformation created with Portrait Studio"
+                              onShare={(platform) => console.log(`Shared generated video to ${platform}`)}
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
