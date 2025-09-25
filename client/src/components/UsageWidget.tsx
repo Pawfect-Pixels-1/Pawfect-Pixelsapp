@@ -3,8 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { Coins, Clock, Zap, Crown } from 'lucide-react';
+import { Coins, Clock, Zap, Crown, Settings } from 'lucide-react';
 import type { UsageInfo, PlanConfig } from '@/lib/stores/useBilling';
+import { useBilling } from '@/lib/stores/useBilling';
 
 interface UsageWidgetProps {
   usage: UsageInfo;
@@ -14,6 +15,7 @@ interface UsageWidgetProps {
 }
 
 export function UsageWidget({ usage, currentPlan, onUpgrade, onBuyCredits }: UsageWidgetProps) {
+  const { openCustomerPortal, isOpeningPortal } = useBilling();
   const isTrialUser = usage.plan === 'trial';
   const isLowCredits = usage.creditsBalance < 10;
   
@@ -145,6 +147,28 @@ export function UsageWidget({ usage, currentPlan, onUpgrade, onBuyCredits }: Usa
           >
             🪙 Buy Credits
           </Button>
+
+          {/* Manage Subscription - only for paid plans */}
+          {!isTrialUser && (
+            <Button
+              onClick={openCustomerPortal}
+              disabled={isOpeningPortal}
+              variant="outline"
+              className="w-full border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
+            >
+              {isOpeningPortal ? (
+                <div className="flex items-center gap-2">
+                  <div className="animate-spin w-4 h-4 border-2 border-current border-t-transparent rounded-full" />
+                  Opening...
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Settings className="w-4 h-4" />
+                  Manage Subscription
+                </div>
+              )}
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

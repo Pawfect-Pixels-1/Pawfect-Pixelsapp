@@ -17,10 +17,8 @@ import { eq } from "drizzle-orm";
 
 const router = Router();
 
-// Initialize Stripe with API version (recommended)
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-08-27.basil",
-});
+// Initialize Stripe (using account default API version)
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 /**
  * POST /api/billing/checkout
@@ -106,7 +104,8 @@ router.post("/portal", requireAuth, async (req, res) => {
 
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripeCustomerId,
-      return_url: req.body.returnUrl || `${req.protocol}://${req.get("host")}/account`,
+      configuration: 'bpc_1SB7yrD1OI5Pfwv2imV9dPNP', // Custom portal configuration
+      return_url: `${req.protocol}://${req.get("host")}/`, // Always return to our app
     });
 
     res.json({ success: true, url: session.url });

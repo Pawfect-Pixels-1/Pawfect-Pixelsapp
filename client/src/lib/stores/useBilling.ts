@@ -53,11 +53,13 @@ interface BillingState {
   isLoadingUsage: boolean;
   isLoadingPlans: boolean;
   isCreatingCheckout: boolean;
+  isOpeningPortal: boolean;
   
   // Actions
   fetchUsage: () => Promise<void>;
   fetchPlans: () => Promise<void>;
   createCheckoutSession: (type: 'subscription' | 'credits', planOrPack: string) => Promise<string | null>;
+  openCustomerPortal: () => Promise<boolean>;
   refreshUsage: () => Promise<void>;
   deductCredits: (amount: number) => void;
   handlePostCheckout: () => Promise<void>;
@@ -71,6 +73,7 @@ export const useBilling = create<BillingState>((set, get) => ({
     isLoadingUsage: false,
     isLoadingPlans: false,
     isCreatingCheckout: false,
+    isOpeningPortal: false,
 
     // Fetch current usage and limits
     fetchUsage: async () => {
@@ -141,6 +144,45 @@ export const useBilling = create<BillingState>((set, get) => ({
       } finally {
         set({ isCreatingCheckout: false });
       }
+    },
+
+    // Open customer portal for subscription management
+    openCustomerPortal: async () => {
+      set({ isOpeningPortal: true });
+      try {
+        const response = await fetch('/api/billing/portal', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({ returnUrl: window.location.href }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.url) {
+            window.location.href = data.url;
+            return true;
+          }
+        } else if (response.status === 400) {
+          const errorData = await response.json().catch(() => ({}));
+          console.error('Portal access error:', errorData.error || 'No Stripe customer found');
+          alert('Unable to access billing portal. Please subscribe to a plan first or contact support.');
+          return false;
+        } else {
+          console.error('Failed to create customer portal session');
+          alert('Unable to access billing portal. Please try again or contact support.');
+          return false;
+        }
+      } catch (error) {
+        console.error('Error opening customer portal:', error);
+        alert('Unable to access billing portal. Please try again or contact support.');
+        return false;
+      } finally {
+        set({ isOpeningPortal: false });
+      }
+      return false;
     },
 
     // Refresh usage after operations
