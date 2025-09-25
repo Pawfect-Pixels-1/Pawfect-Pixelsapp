@@ -19,6 +19,10 @@ interface TransformationState {
   // Editor state
   showImageEditor: boolean;
   
+  // Share modal state
+  showShareModal: boolean;
+  shareModalContent: { url: string; type: 'image' | 'video' } | null;
+  
   // Actions
   setUploadedImage: (image: string | null) => void;
   setOriginalImage: (image: string | null) => void;
@@ -29,6 +33,9 @@ interface TransformationState {
   setCurrentOperation: (operation: OperationType) => void;
   setProgress: (progress: number) => void;
   setShowImageEditor: (show: boolean) => void;
+  setShowShareModal: (show: boolean) => void;
+  setShareModalContent: (content: { url: string; type: 'image' | 'video' } | null) => void;
+  triggerShareModal: (url: string, type: 'image' | 'video') => void;
   clearResults: () => void;
   reset: () => void;
 }
@@ -45,6 +52,8 @@ export const useTransformation = create<TransformationState>()(
     currentOperation: null,
     progress: 0,
     showImageEditor: false,
+    showShareModal: false,
+    shareModalContent: null,
     
     // Actions
     setUploadedImage: (image) => {
@@ -87,6 +96,21 @@ export const useTransformation = create<TransformationState>()(
     
     setShowImageEditor: (show) => {
       set({ showImageEditor: show });
+    },
+    
+    setShowShareModal: (show) => {
+      set({ showShareModal: show });
+    },
+    
+    setShareModalContent: (content) => {
+      set({ shareModalContent: content });
+    },
+    
+    triggerShareModal: (url, type) => {
+      set({ 
+        shareModalContent: { url, type },
+        showShareModal: true 
+      });
     },
     
     clearResults: () => {

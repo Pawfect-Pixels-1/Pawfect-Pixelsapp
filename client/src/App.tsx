@@ -6,6 +6,7 @@ import TransformationControls from "./components/TransformationControls";
 import { UserHeader } from "./components/UserHeader";
 import { UserDashboard } from "./components/UserDashboard";
 import { PricingPage } from "./components/PricingPage";
+import { ShareButton } from "./components/ShareButton";
 import WelcomePage from "./components/WelcomePage";
 import { useTransformation } from "./lib/stores/useTransformation";
 import { useAuth } from "./lib/stores/useAuth";
@@ -183,17 +184,26 @@ function AppContent() {
                           className="w-full h-full object-cover"
                         />
                       </div>
-                      <button 
-                        onClick={() => {
-                          const link = document.createElement('a');
-                          link.href = transformedImage;
-                          link.download = 'transformed-portrait.png';
-                          link.click();
-                        }}
-                        className="w-full bg-[#10B981] text-white py-2 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
-                      >
-                        Download Image
-                      </button>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => {
+                            const link = document.createElement('a');
+                            link.href = transformedImage;
+                            link.download = 'transformed-portrait.png';
+                            link.click();
+                          }}
+                          className="flex-1 bg-[#10B981] text-white py-2 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
+                        >
+                          Download
+                        </button>
+                        <ShareButton
+                          contentUrl={transformedImage}
+                          contentType="image"
+                          title="Check out my AI-transformed portrait!"
+                          description="Created with Portrait Studio's amazing AI transformation technology"
+                          onShare={(platform) => console.log(`Shared transformed image to ${platform}`)}
+                        />
+                      </div>
                     </div>
                   )}
 
@@ -210,17 +220,26 @@ function AppContent() {
                           muted
                         />
                       </div>
-                      <button 
-                        onClick={() => {
-                          const link = document.createElement('a');
-                          link.href = generatedVideo;
-                          link.download = 'generated-video.mp4';
-                          link.click();
-                        }}
-                        className="w-full bg-[#F59E0B] text-white py-2 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
-                      >
-                        Download Video
-                      </button>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => {
+                            const link = document.createElement('a');
+                            link.href = generatedVideo;
+                            link.download = 'generated-video.mp4';
+                            link.click();
+                          }}
+                          className="flex-1 bg-[#F59E0B] text-white py-2 px-4 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
+                        >
+                          Download
+                        </button>
+                        <ShareButton
+                          contentUrl={generatedVideo}
+                          contentType="video"
+                          title="Check out my AI-generated video!"
+                          description="Watch this amazing AI-powered video transformation created with Portrait Studio"
+                          onShare={(platform) => console.log(`Shared generated video to ${platform}`)}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
