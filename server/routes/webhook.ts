@@ -1,319 +1,248 @@
+// server/routes/webhook.ts
 import { Router } from "express";
 import Stripe from "stripe";
+import bodyParser from "body-parser";
 import { db } from "../storage";
 import { users, processedWebhookEvents } from "../../shared/schema";
 import { eq, sql } from "drizzle-orm";
-import { billingConfig, loadStripeConfig } from "../../shared/billing";
+import { billingConfig, loadStripeConfig, PlanType } from "../../shared/billing";
 
 const router = Router();
 
-// Initialize Stripe
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+// Initialize Stripe with explicit API version (recommended)
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2025-08-27.basil",
+});
+
+const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+const priceIds = loadStripeConfig().priceIds;
+
+/** Map Stripe price.id → plan/pack */
+function mapPriceId(
+  priceId: string
+):
+  | { kind: "subscription"; plan: Exclude<PlanType, "trial"> }
+  | { kind: "credits"; pack: "small" | "medium" | "large"; credits: number }
+  | null {
+  // Subs (monthly + yearly)
+  if (priceId === priceIds.basic.monthly || priceId === priceIds.basic.yearly) {
+    return { kind: "subscription", plan: "basic" };
+  }
+  if (priceId === priceIds.advanced.monthly || priceId === priceIds.advanced.yearly) {
+    return { kind: "subscription", plan: "advanced" };
+  }
+  if (priceId === priceIds.premium.monthly || priceId === priceIds.premium.yearly) {
+    return { kind: "subscription", plan: "premium" };
+  }
+  // Packs
+  if (priceId === priceIds.creditPacks.small) return { kind: "credits", pack: "small", credits: 100 };
+  if (priceId === priceIds.creditPacks.medium) return { kind: "credits", pack: "medium", credits: 500 };
+  if (priceId === priceIds.creditPacks.large) return { kind: "credits", pack: "large", credits: 2000 };
+  return null;
+}
+
+/** Resolve our user id from Checkout Session */
+function resolveUserId(session: Stripe.Checkout.Session): number | null {
+  const metaUid = (session.metadata?.userId ?? "") as string;
+  const refUid = (session.client_reference_id ?? "") as string;
+  const raw = metaUid || refUid;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Update helper */
+async function updateUser(userId: number, patch: Partial<typeof users.$inferInsert>) {
+  await db.update(users).set(patch).where(eq(users.id, userId));
+}
 
 /**
  * POST /api/billing/webhook
- * Handle Stripe webhook events for subscription and payment updates
+ * IMPORTANT: raw body required for Stripe signature verification
  */
-router.post("/webhook", async (req, res) => {
-  const sig = req.headers['stripe-signature'] as string;
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+router.post(
+  "/webhook",
+  bodyParser.raw({ type: "application/json" }),
+  async (req, res) => {
+    const sig = req.headers["stripe-signature"] as string;
+    let event: Stripe.Event;
 
-  let event: Stripe.Event;
-
-  try {
-    // Verify webhook signature
-    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
-  } catch (err: any) {
-    console.error(`❌ Webhook signature verification failed:`, err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  console.log(`✅ Received webhook event: ${event.type}`);
-
-  try {
-    // Atomic idempotency check: try to insert event ID first
-    const insertResult = await db.execute(sql`
-      INSERT INTO processed_webhook_events (event_id, event_type)
-      VALUES (${event.id}, ${event.type})
-      ON CONFLICT (event_id) DO NOTHING
-      RETURNING id
-    `);
-
-    if (!insertResult.rows || insertResult.rows.length === 0) {
-      console.log(`⚠️ Event ${event.id} already processed, skipping`);
-      return res.status(200).json({ received: true, skipped: true });
-    }
-    switch (event.type) {
-      case 'checkout.session.completed':
-        await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session, event.id);
-        break;
-
-      case 'customer.subscription.created':
-        await handleSubscriptionCreated(event.data.object as Stripe.Subscription);
-        break;
-
-      case 'customer.subscription.updated':
-        await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
-        break;
-
-      case 'customer.subscription.deleted':
-        await handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
-        break;
-
-      case 'invoice.paid':
-        await handleInvoicePaid(event.data.object as Stripe.Invoice);
-        break;
-
-      case 'invoice.payment_failed':
-        await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice);
-        break;
-
-      default:
-        console.log(`🤷 Unhandled event type: ${event.type}`);
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    } catch (err: any) {
+      console.error("❌ Webhook signature verification failed:", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    res.status(200).json({ received: true });
-  } catch (error) {
-    console.error(`❌ Error processing webhook event ${event.type}:`, error);
-    res.status(500).json({ error: 'Webhook processing failed' });
-  }
-});
+    console.log(`✅ Received webhook event: ${event.type}`);
 
-/**
- * Handle completed checkout sessions (one-time credit pack purchases)
- */
-async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventId: string) {
-  const { userId, type } = session.metadata || {};
-  
-  if (!userId) {
-    console.error("❌ No userId in checkout session metadata");
-    return;
-  }
+    try {
+      // Idempotency: record event id (ON CONFLICT DO NOTHING)
+      await db
+        .insert(processedWebhookEvents)
+        .values({ eventId: event.id, eventType: event.type })
+        .onConflictDoNothing();
 
-  // Verify payment was successful
-  if (session.payment_status !== 'paid') {
-    console.log(`⚠️ Checkout session ${session.id} not paid yet: ${session.payment_status}`);
-    return;
-  }
+      // If already processed, RETURNING won't give us a row — we detect with a select:
+      const already = await db
+        .select()
+        .from(processedWebhookEvents)
+        .where(eq(processedWebhookEvents.eventId, event.id));
+      if (already.length > 1) {
+        // safety; shouldn't happen
+        return res.status(200).json({ received: true, skipped: true });
+      }
 
-  console.log(`💳 Checkout completed for user ${userId}, type: ${type}`);
+      switch (event.type) {
+        /** One-time packs & initial subs checkout */
+        case "checkout.session.completed": {
+          const session = event.data.object as Stripe.Checkout.Session;
 
-  if (type === 'credits') {
-    // Retrieve full session with line items to get the actual purchased price
-    const fullSession = await stripe.checkout.sessions.retrieve(session.id, {
-      expand: ['line_items']
-    });
+          if (session.payment_status !== "paid") break;
 
-    const lineItem = fullSession.line_items?.data[0];
-    if (!lineItem?.price?.id) {
-      console.error(`❌ No price ID found in checkout session ${session.id}`);
-      return;
+          const userId = resolveUserId(session);
+          if (!userId) {
+            console.error("❌ checkout.session.completed missing userId");
+            break;
+          }
+
+          // Get the single line item's price
+          const line = await stripe.checkout.sessions.listLineItems(session.id, {
+            limit: 1,
+            expand: ["data.price"],
+          });
+          const price = line.data[0]?.price as Stripe.Price | undefined;
+          const priceId = price?.id;
+          if (!priceId) break;
+
+          const mapped = mapPriceId(priceId);
+          if (!mapped) {
+            console.warn("🤷 Unknown price id in checkout:", priceId);
+            break;
+          }
+
+          // Ensure the session's customer matches the stored user
+          const [user] = await db.select().from(users).where(eq(users.id, userId));
+          if (!user) {
+            console.error(`❌ User not found: ${userId}`);
+            break;
+          }
+          const sessionCustomerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
+          if (user.stripeCustomerId && sessionCustomerId && user.stripeCustomerId !== sessionCustomerId) {
+            console.error(`❌ Customer mismatch for user ${userId}: ${sessionCustomerId} != ${user.stripeCustomerId}`);
+            break;
+          }
+
+          if (mapped.kind === "credits") {
+            // Atomic increment (use raw SQL if your column is snake_case)
+            await db.execute(sql`
+              UPDATE users
+              SET credits_balance = COALESCE(credits_balance, 0) + ${mapped.credits}
+              WHERE id = ${userId}
+            `);
+            console.log(`💰 Added ${mapped.credits} credits to user ${userId}`);
+          } else if (mapped.kind === "subscription") {
+            const included = billingConfig.plans[mapped.plan].includedCredits;
+            const isPriority = mapped.plan === "premium";
+            await updateUser(userId, {
+              plan: mapped.plan,
+              includedCreditsThisCycle: included,
+              isPriorityQueue: isPriority,
+              // store subscription id on subsequent sub events
+            });
+            console.log(`✅ Set user ${userId} plan=${mapped.plan}, included=${included}`);
+          }
+
+          break;
+        }
+
+        /** Subscription renewals (best signal to reset monthly included credits) */
+        case "invoice.payment_succeeded": {
+          const invoice = event.data.object as Stripe.Invoice;
+          const subscriptionId = (invoice.subscription as string) || null;
+          const customerId = (invoice.customer as string) || null;
+          if (!subscriptionId || !customerId) break;
+
+          const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+            expand: ["items.data.price"],
+          });
+          const price = subscription.items.data[0]?.price;
+          const mapped = price?.id ? mapPriceId(price.id) : null;
+
+          const customer = await stripe.customers.retrieve(customerId);
+          const uidRaw = (customer as any)?.metadata?.userId;
+          const userId = Number(uidRaw);
+          if (!Number.isFinite(userId) || !mapped || mapped.kind !== "subscription") break;
+
+          const included = billingConfig.plans[mapped.plan].includedCredits;
+          const isPriority = mapped.plan === "premium";
+
+          await updateUser(userId, {
+            plan: mapped.plan,
+            stripeSubscriptionId: subscription.id,
+            includedCreditsThisCycle: included,
+            isPriorityQueue: isPriority,
+            dailyCreditsCap: null,
+            dailyCreditsUsed: null,
+            lastDailyRefreshAt: null,
+          });
+          console.log(`🔄 Reset monthly credits for user ${userId}: ${included}`);
+          break;
+        }
+
+        /** Plan switches mid-cycle */
+        case "customer.subscription.created":
+        case "customer.subscription.updated": {
+          const sub = event.data.object as Stripe.Subscription;
+          const customerId = sub.customer as string;
+          const customer = await stripe.customers.retrieve(customerId);
+          const userId = Number((customer as any)?.metadata?.userId);
+          if (!Number.isFinite(userId)) break;
+
+          const price = sub.items.data[0]?.price;
+          const mapped = price?.id ? mapPriceId(price.id) : null;
+          if (!mapped || mapped.kind !== "subscription") break;
+
+          const isPriority = mapped.plan === "premium";
+          await updateUser(userId, {
+            plan: mapped.plan,
+            stripeSubscriptionId: sub.id,
+            isPriorityQueue: isPriority,
+          });
+          console.log(`📋 Sub ${sub.id} → user ${userId} plan=${mapped.plan}`);
+          break;
+        }
+
+        /** Cancellation */
+        case "customer.subscription.deleted": {
+          const sub = event.data.object as Stripe.Subscription;
+          const customerId = sub.customer as string;
+          const customer = await stripe.customers.retrieve(customerId);
+          const userId = Number((customer as any)?.metadata?.userId);
+          if (!Number.isFinite(userId)) break;
+
+          await updateUser(userId, {
+            plan: "trial",
+            stripeSubscriptionId: null,
+            includedCreditsThisCycle: 0,
+            isPriorityQueue: false,
+            dailyCreditsCap: billingConfig.trial.dailyCredits,
+            dailyCreditsUsed: 0,
+            lastDailyRefreshAt: null,
+          });
+          console.log(`⬇️ User ${userId} reverted to trial`);
+          break;
+        }
+
+        default:
+          console.log(`🤷 Unhandled event type: ${event.type}`);
+      }
+
+      return res.status(200).json({ received: true });
+    } catch (error) {
+      console.error(`❌ Error processing webhook ${event.type}:`, error);
+      return res.status(500).json({ error: "Webhook processing failed" });
     }
-
-    // Find credit pack by price ID instead of metadata
-    const stripeConfig = loadStripeConfig();
-    let pack = null;
-    let packName = '';
-
-    if (lineItem.price.id === stripeConfig.priceIds.creditPacks.small) {
-      pack = billingConfig.creditPacks.find(p => p.name.toLowerCase() === 'small');
-      packName = 'small';
-    } else if (lineItem.price.id === stripeConfig.priceIds.creditPacks.medium) {
-      pack = billingConfig.creditPacks.find(p => p.name.toLowerCase() === 'medium');
-      packName = 'medium';
-    } else if (lineItem.price.id === stripeConfig.priceIds.creditPacks.large) {
-      pack = billingConfig.creditPacks.find(p => p.name.toLowerCase() === 'large');
-      packName = 'large';
-    }
-    
-    if (!pack) {
-      console.error(`❌ Unknown credit pack price ID: ${lineItem.price.id}`);
-      return;
-    }
-
-    // Verify user exists and customer matches
-    const [user] = await db.select().from(users).where(eq(users.id, parseInt(userId)));
-    if (!user) {
-      console.error(`❌ User not found: ${userId}`);
-      return;
-    }
-
-    // Cross-validate that the session customer matches the user's Stripe customer
-    const sessionCustomerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
-    if (user.stripeCustomerId !== sessionCustomerId) {
-      console.error(`❌ Customer mismatch: session customer ${sessionCustomerId} != user customer ${user.stripeCustomerId}`);
-      return;
-    }
-
-    // Atomic credit balance update
-    const updateResult = await db.execute(sql`
-      UPDATE users 
-      SET credits_balance = COALESCE(credits_balance, 0) + ${pack.credits}
-      WHERE id = ${parseInt(userId)}
-      RETURNING credits_balance
-    `);
-
-    const newBalance = updateResult.rows[0]?.credits_balance;
-    console.log(`💰 Added ${pack.credits} credits (${packName} pack) to user ${userId}. New balance: ${newBalance}`);
   }
-}
-
-/**
- * Handle new subscription creation
- */
-async function handleSubscriptionCreated(subscription: Stripe.Subscription) {
-  await updateUserSubscription(subscription);
-}
-
-/**
- * Handle subscription updates (plan changes, etc.)
- */
-async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
-  await updateUserSubscription(subscription);
-}
-
-/**
- * Handle subscription cancellation
- */
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
-  console.log(`🚫 Subscription deleted: ${subscription.id}`);
-  
-  // Find user by Stripe subscription ID
-  const [user] = await db.select().from(users)
-    .where(eq(users.stripeSubscriptionId, subscription.id));
-  
-  if (!user) {
-    console.error(`❌ User not found for subscription: ${subscription.id}`);
-    return;
-  }
-
-  // Revert to trial plan
-  await db.update(users)
-    .set({
-      plan: "trial",
-      stripeSubscriptionId: null,
-      includedCreditsThisCycle: 0,
-      isPriorityQueue: false,
-      dailyCreditsCap: billingConfig.trial.dailyCredits,
-      dailyCreditsUsed: 0
-    })
-    .where(eq(users.id, user.id));
-
-  console.log(`⬇️ User ${user.id} reverted to trial plan`);
-}
-
-/**
- * Handle successful invoice payments (subscription renewals)
- */
-async function handleInvoicePaid(invoice: Stripe.Invoice) {
-  const subscriptionId = (invoice as any).subscription as string | null;
-  if (!subscriptionId) return;
-
-  console.log(`💳 Invoice paid for subscription: ${subscriptionId}`);
-  
-  // Find user by Stripe subscription ID
-  const [user] = await db.select().from(users)
-    .where(eq(users.stripeSubscriptionId, subscriptionId));
-  
-  if (!user) {
-    console.error(`❌ User not found for subscription: ${subscriptionId}`);
-    return;
-  }
-
-  // Reset monthly included credits
-  const planConfig = billingConfig.plans[user.plan as keyof typeof billingConfig.plans];
-  if (planConfig) {
-    await db.update(users)
-      .set({ includedCreditsThisCycle: planConfig.includedCredits })
-      .where(eq(users.id, user.id));
-
-    console.log(`🔄 Reset monthly credits for user ${user.id}: ${planConfig.includedCredits}`);
-  }
-}
-
-/**
- * Handle failed invoice payments
- */
-async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
-  const subscriptionId = (invoice as any).subscription as string | null;
-  if (!subscriptionId) return;
-
-  console.log(`❌ Invoice payment failed for subscription: ${subscriptionId}`);
-  
-  // Could implement grace period logic here
-  // For now, just log the event
-}
-
-/**
- * Update user subscription details from Stripe subscription object
- */
-async function updateUserSubscription(subscription: Stripe.Subscription) {
-  console.log(`📋 Updating subscription: ${subscription.id}, status: ${subscription.status}`);
-  
-  // Find user by Stripe customer ID
-  const [user] = await db.select().from(users)
-    .where(eq(users.stripeCustomerId, subscription.customer as string));
-  
-  if (!user) {
-    console.error(`❌ User not found for customer: ${subscription.customer}`);
-    return;
-  }
-
-  // Only process active subscriptions
-  if (subscription.status !== 'active') {
-    console.log(`⚠️ Subscription ${subscription.id} is not active: ${subscription.status}`);
-    return;
-  }
-
-  // Get the price ID from the subscription
-  const priceId = subscription.items.data[0]?.price.id;
-  if (!priceId) {
-    console.error(`❌ No price ID found in subscription: ${subscription.id}`);
-    return;
-  }
-
-  // Map price ID to plan
-  const stripeConfig = {
-    priceIds: {
-      basic: process.env.STRIPE_PRICE_BASIC!,
-      advanced: process.env.STRIPE_PRICE_ADVANCED!,
-      premium: process.env.STRIPE_PRICE_PREMIUM!
-    }
-  };
-
-  let newPlan: string = user.plan;
-  if (priceId === stripeConfig.priceIds.basic) {
-    newPlan = "basic";
-  } else if (priceId === stripeConfig.priceIds.advanced) {
-    newPlan = "advanced";
-  } else if (priceId === stripeConfig.priceIds.premium) {
-    newPlan = "premium";
-  } else {
-    console.error(`❌ Unknown price ID: ${priceId}`);
-    return;
-  }
-
-  const planConfig = billingConfig.plans[newPlan as keyof typeof billingConfig.plans];
-  if (!planConfig) {
-    console.error(`❌ Invalid plan: ${newPlan}`);
-    return;
-  }
-
-  // Update user with new subscription details
-  await db.update(users)
-    .set({
-      plan: newPlan,
-      stripeSubscriptionId: subscription.id,
-      includedCreditsThisCycle: planConfig.includedCredits,
-      isPriorityQueue: planConfig.priority,
-      // Remove trial-specific fields
-      dailyCreditsCap: null,
-      dailyCreditsUsed: null,
-      lastDailyRefreshAt: null
-    })
-    .where(eq(users.id, user.id));
-
-  console.log(`✅ Updated user ${user.id} to ${newPlan} plan with ${planConfig.includedCredits} credits`);
-}
+);
 
 export const webhookRouter = router;

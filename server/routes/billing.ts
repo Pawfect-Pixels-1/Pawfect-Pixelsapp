@@ -1,14 +1,14 @@
 import { Router } from "express";
 import Stripe from "stripe";
 import { z } from "zod";
-import { 
-  CheckoutRequestSchema, 
-  loadStripeConfig, 
+import {
+  CheckoutRequestSchema,
   getPriceIdForSubscription,
   getPriceIdForCreditPack,
   billingConfig,
-  VIDEO_MODELS,
-  PlanType
+  PlanType,
+  BillingPeriod,           // NEW: use period type
+  getRateLimitForPlan,     // use your helper
 } from "../../shared/billing";
 import { requireAuth } from "../auth";
 import { db } from "../storage";
@@ -17,8 +17,10 @@ import { eq } from "drizzle-orm";
 
 const router = Router();
 
-// Initialize Stripe
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+// Initialize Stripe with API version (recommended)
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2025-08-27.basil",
+});
 
 /**
  * POST /api/billing/checkout
@@ -26,39 +28,38 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
  */
 router.post("/checkout", requireAuth, async (req, res) => {
   try {
-    const body = CheckoutRequestSchema.parse(req.body);
+    const parsed = CheckoutRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+    }
+    const body = parsed.data;
     const user = req.user!;
 
     let priceId: string;
     let mode: "subscription" | "payment" = "payment";
 
     if (body.type === "subscription") {
-      if (!body.plan) {
-        return res.status(400).json({ error: "Plan is required for subscription" });
-      }
-      priceId = getPriceIdForSubscription(body.plan);
+      // billingPeriod defaults to "monthly" in the schema; pass it through
+      const period: BillingPeriod = body.billingPeriod ?? "monthly";
+      priceId = getPriceIdForSubscription(body.plan!, period);
       mode = "subscription";
     } else {
-      if (!body.creditPack) {
-        return res.status(400).json({ error: "Credit pack is required for credits" });
-      }
-      priceId = getPriceIdForCreditPack(body.creditPack);
+      priceId = getPriceIdForCreditPack(body.creditPack!);
       mode = "payment";
     }
 
     // Get or create Stripe customer
-    let customerId = user.stripeCustomerId;
+    let customerId = user.stripeCustomerId ?? undefined;
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email || undefined,
         metadata: {
-          userId: user.id.toString(),
-          username: user.username
-        }
+          userId: String(user.id),
+          username: user.username ?? "",
+        },
       });
       customerId = customer.id;
 
-      // Update user with Stripe customer ID
       await db.update(users)
         .set({ stripeCustomerId: customerId })
         .where(eq(users.id, user.id));
@@ -69,37 +70,26 @@ router.post("/checkout", requireAuth, async (req, res) => {
       customer: customerId,
       mode,
       payment_method_types: ["card"],
-      line_items: [{
-        price: priceId,
-        quantity: 1
-      }],
+      line_items: [{ price: priceId, quantity: 1 }],
       success_url: body.successUrl,
       cancel_url: body.cancelUrl,
+      client_reference_id: String(user.id), // useful in webhook
       metadata: {
-        userId: user.id.toString(),
+        userId: String(user.id),
         type: body.type,
         ...(body.plan && { plan: body.plan }),
-        ...(body.creditPack && { creditPack: body.creditPack })
-      }
+        ...(body.billingPeriod && { billingPeriod: body.billingPeriod }),
+        ...(body.creditPack && { creditPack: body.creditPack }),
+      },
     });
 
-    res.json({ 
-      success: true, 
-      url: session.url,
-      sessionId: session.id 
-    });
-
+    res.json({ success: true, url: session.url, sessionId: session.id });
   } catch (error) {
     console.error("Checkout session creation failed:", error);
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ 
-        error: "Invalid request", 
-        details: error.errors 
-      });
+      return res.status(400).json({ error: "Invalid request", details: error.errors });
     }
-    res.status(500).json({ 
-      error: "Failed to create checkout session" 
-    });
+    res.status(500).json({ error: "Failed to create checkout session" });
   }
 });
 
@@ -110,28 +100,19 @@ router.post("/checkout", requireAuth, async (req, res) => {
 router.post("/portal", requireAuth, async (req, res) => {
   try {
     const user = req.user!;
-    
     if (!user.stripeCustomerId) {
-      return res.status(400).json({ 
-        error: "No Stripe customer found. Please subscribe first." 
-      });
+      return res.status(400).json({ error: "No Stripe customer found. Please subscribe first." });
     }
 
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripeCustomerId,
-      return_url: req.body.returnUrl || `${req.protocol}://${req.get('host')}/account`
+      return_url: req.body.returnUrl || `${req.protocol}://${req.get("host")}/account`,
     });
 
-    res.json({ 
-      success: true, 
-      url: session.url 
-    });
-
+    res.json({ success: true, url: session.url });
   } catch (error) {
     console.error("Billing portal creation failed:", error);
-    res.status(500).json({ 
-      error: "Failed to create billing portal session" 
-    });
+    res.status(500).json({ error: "Failed to create billing portal session" });
   }
 });
 
@@ -142,76 +123,79 @@ router.post("/portal", requireAuth, async (req, res) => {
 router.get("/usage/me", requireAuth, async (req, res) => {
   try {
     const user = req.user!;
-    
-    // Calculate trial end date if applicable
+
+    // Trial end calculation
     let trialEndsAt: Date | null = null;
     if (user.plan === "trial" && user.trialStartedAt) {
       trialEndsAt = new Date(user.trialStartedAt);
       trialEndsAt.setDate(trialEndsAt.getDate() + billingConfig.trial.days);
     }
 
-    // Calculate daily credits remaining for trial users
+    // Daily credits remaining (trial only)
     let dailyCreditsRemaining = 0;
     if (user.plan === "trial") {
-      const today = new Date().toISOString().split('T')[0];
-      const lastRefresh = user.lastDailyRefreshAt ? new Date(user.lastDailyRefreshAt).toISOString().split('T')[0] : null;
-      
-      if (lastRefresh !== today) {
-        // Reset daily credits for new day
-        dailyCreditsRemaining = user.dailyCreditsCap || billingConfig.trial.dailyCredits;
+      const now = new Date();
+      const lastRefresh = user.lastDailyRefreshAt ? new Date(user.lastDailyRefreshAt) : null;
+      const needsRefresh =
+        !lastRefresh ||
+        lastRefresh.getFullYear() !== now.getFullYear() ||
+        lastRefresh.getMonth() !== now.getMonth() ||
+        lastRefresh.getDate() !== now.getDate();
+
+      if (needsRefresh) {
+        const cap = user.dailyCreditsCap ?? billingConfig.trial.dailyCredits;
+        dailyCreditsRemaining = cap;
         await db.update(users)
-          .set({ 
+          .set({
             dailyCreditsUsed: 0,
-            lastDailyRefreshAt: new Date().toISOString().split('T')[0]
+            lastDailyRefreshAt: new Date(), // ✅ store a Date, not a string
           })
           .where(eq(users.id, user.id));
       } else {
-        dailyCreditsRemaining = Math.max(0, (user.dailyCreditsCap || billingConfig.trial.dailyCredits) - (user.dailyCreditsUsed || 0));
+        const cap = user.dailyCreditsCap ?? billingConfig.trial.dailyCredits;
+        const used = user.dailyCreditsUsed ?? 0;
+        dailyCreditsRemaining = Math.max(0, cap - used);
       }
     }
 
-    // Build response based on plan type
+    // Allowed features by plan
     let allowedVideoModels: string[] = [];
-    let videoCaps = null;
+    let videoCaps: { secondsMax: number; fpsMax: number; aspectRatios: string[] } | null = null;
     let allowedStyles: string[] = ["basic"];
     let allowedDownloads: string[] = ["HD"];
 
     if (user.plan === "trial") {
-      // Trial users: no video models allowed
       allowedVideoModels = [];
       videoCaps = null;
       allowedStyles = billingConfig.trial.styles;
       allowedDownloads = billingConfig.trial.downloads;
     } else {
-      // Paid plan users: get config from billing plans
-      const paidPlanConfig = billingConfig.plans[user.plan as Exclude<PlanType, "trial">];
-      allowedVideoModels = paidPlanConfig.videoModels;
-      videoCaps = paidPlanConfig.videoCaps;
-      allowedStyles = paidPlanConfig.styles;
-      allowedDownloads = paidPlanConfig.downloads;
+      const cfg = billingConfig.plans[user.plan as Exclude<PlanType, "trial">];
+      allowedVideoModels = cfg.videoModels;
+      videoCaps = cfg.videoCaps;
+      allowedStyles = cfg.styles;
+      allowedDownloads = cfg.downloads;
     }
 
-    const usage = {
+    // Rate limit remaining (placeholder: full allowance — you can subtract used count if you track per-hour)
+    const rateLimitRemaining = getRateLimitForPlan(user.plan as PlanType);
+
+    res.json({
       plan: user.plan,
       trialEndsAt,
       dailyCreditsRemaining,
-      creditsBalance: user.creditsBalance || 0,
-      includedCreditsThisCycle: user.includedCreditsThisCycle || 0,
-      rateLimitRemaining: 100, // TODO: Implement actual rate limiting
+      creditsBalance: user.creditsBalance ?? 0,
+      includedCreditsThisCycle: user.includedCreditsThisCycle ?? 0,
+      rateLimitRemaining,
       allowedVideoModels,
       videoCaps,
       allowedStyles,
       allowedDownloads,
-      isPriorityQueue: user.isPriorityQueue || false
-    };
-
-    res.json(usage);
-
+      isPriorityQueue: Boolean(user.isPriorityQueue),
+    });
   } catch (error) {
     console.error("Usage lookup failed:", error);
-    res.status(500).json({ 
-      error: "Failed to get usage information" 
-    });
+    res.status(500).json({ error: "Failed to get usage information" });
   }
 });
 
