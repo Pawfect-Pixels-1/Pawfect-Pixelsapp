@@ -1,8 +1,11 @@
 import { Request, Response } from "express";
 import Replicate from "replicate";
-import { storage, fileStorage } from "../storage";
+import { storage, fileStorage, db } from "../storage";
 import * as types from "../../shared/types";
 import { FluxKontextProRequestSchema, Gen4AlephRequestSchema } from "../../shared/schema";
+import { calculateCreditsNeeded, billingConfig, VIDEO_MODELS } from "../../shared/billing";
+import { users } from "../../shared/schema";
+import { eq, sql } from "drizzle-orm";
 import fetch from "node-fetch";
 
 if (!process.env.REPLICATE_API_TOKEN) {
@@ -14,6 +17,85 @@ const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
 // Tracks operation status/results across requests
 const operationStore = new Map<string, types.OperationStatus>();
+
+/**
+ * Check if user has enough credits and deduct them after successful operation
+ */
+async function checkAndDeductCredits(
+  userId: number,
+  operationType: "image" | "video",
+  model?: string,
+  seconds?: number
+): Promise<{ hasCredits: boolean; creditsNeeded: number; error?: string }> {
+  try {
+    // Calculate credits needed
+    const creditsNeeded = calculateCreditsNeeded(operationType, model, seconds);
+    
+    // Get current user data
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) {
+      return { hasCredits: false, creditsNeeded, error: "User not found" };
+    }
+
+    // Check if user has enough credits (daily remaining + balance)
+    const dailyRemaining = Math.max(0, (user.dailyCreditsCap || 0) - (user.dailyCreditsUsed || 0));
+    const totalAvailable = dailyRemaining + (user.creditsBalance || 0);
+    if (totalAvailable < creditsNeeded) {
+      return { 
+        hasCredits: false, 
+        creditsNeeded, 
+        error: `Insufficient credits. Need ${creditsNeeded}, have ${totalAvailable} (${dailyRemaining} daily + ${user.creditsBalance || 0} purchased)` 
+      };
+    }
+
+    return { hasCredits: true, creditsNeeded };
+  } catch (error) {
+    console.error("❌ Error checking credits:", error);
+    return { hasCredits: false, creditsNeeded: 0, error: "Credit check failed" };
+  }
+}
+
+async function deductCreditsAfterSuccess(userId: number, creditsToDeduct: number): Promise<void> {
+  try {
+    // Deduct from daily credits first, then from balance
+    await db.transaction(async (tx) => {
+      const [user] = await tx.select().from(users).where(eq(users.id, userId));
+      if (!user) throw new Error("User not found");
+
+      let remainingToDeduct = creditsToDeduct;
+      const dailyRemaining = Math.max(0, (user.dailyCreditsCap || 0) - (user.dailyCreditsUsed || 0));
+      let newDailyUsed = user.dailyCreditsUsed || 0;
+      let newBalance = user.creditsBalance || 0;
+
+      // First, deduct from daily credits (by increasing dailyCreditsUsed)
+      if (dailyRemaining > 0 && remainingToDeduct > 0) {
+        const dailyDeduction = Math.min(dailyRemaining, remainingToDeduct);
+        newDailyUsed += dailyDeduction;
+        remainingToDeduct -= dailyDeduction;
+      }
+
+      // Then, deduct from balance if needed
+      if (remainingToDeduct > 0) {
+        newBalance -= remainingToDeduct;
+      }
+
+      // Update user credits
+      await tx
+        .update(users)
+        .set({
+          dailyCreditsUsed: newDailyUsed,
+          creditsBalance: newBalance,
+        })
+        .where(eq(users.id, userId));
+      
+      const newDailyRemaining = Math.max(0, (user.dailyCreditsCap || 0) - newDailyUsed);
+      console.log(`💰 Deducted ${creditsToDeduct} credits from user ${userId}. Daily remaining: ${newDailyRemaining}, Balance: ${newBalance}`);
+    });
+  } catch (error) {
+    console.error("❌ Error deducting credits:", error);
+    throw error;
+  }
+}
 
 /** --- Pin a known version for reproducibility (update as needed) --- */
 // Example version hash from the model’s API page:
@@ -71,6 +153,26 @@ export async function transformImageHandler(req: Request, res: Response) {
     };
 
     console.log("🎨 Kontext input:", { style, input });
+
+    // Check and validate user credits before processing
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, error: "Authentication required" });
+    }
+
+    const numImages = input.num_images || 1;
+    const totalCreditsNeeded = calculateCreditsNeeded("image") * numImages;
+    const creditCheck = await checkAndDeductCredits(req.user.id, "image");
+    
+    if (!creditCheck.hasCredits) {
+      console.log(`❌ Credit check failed for user ${req.user.id}: ${creditCheck.error}`);
+      return res.status(402).json({ 
+        success: false, 
+        error: creditCheck.error,
+        creditsNeeded: totalCreditsNeeded
+      });
+    }
+
+    console.log(`💰 User ${req.user.id} has sufficient credits. Processing ${numImages} images (${totalCreditsNeeded} credits)`);
 
     // Kick off prediction (Kontext returns an array of URLs)
     const prediction = await replicate.predictions.create({
@@ -206,6 +308,15 @@ export async function transformImageHandler(req: Request, res: Response) {
         console.error('Error saving transformation to database:', error);
         // Don't fail the whole operation if database save fails
       }
+    }
+
+    // Deduct credits after successful completion
+    try {
+      await deductCreditsAfterSuccess(req.user!.id, totalCreditsNeeded);
+      console.log(`✅ Successfully deducted ${totalCreditsNeeded} credits for user ${req.user!.id}`);
+    } catch (error) {
+      console.error(`❌ Failed to deduct credits for user ${req.user!.id}:`, error);
+      // Continue with successful response even if credit deduction fails
     }
 
     return res.json({
@@ -482,6 +593,26 @@ export async function generateVideoHandler(req: Request, res: Response) {
     console.log(`📝 Video prompt: "${prompt}"`);
     console.log(`🖼️ Image source: ${imageSource || 'uploaded'}`);
 
+    // Check and validate user credits before processing
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, error: "Authentication required" });
+    }
+
+    // Kling v1.6 typically generates 4-second videos (default)
+    const videoDurationSeconds = 4;
+    const creditCheck = await checkAndDeductCredits(req.user.id, "video", VIDEO_MODELS.KLING, videoDurationSeconds);
+    
+    if (!creditCheck.hasCredits) {
+      console.log(`❌ Credit check failed for user ${req.user.id}: ${creditCheck.error}`);
+      return res.status(402).json({ 
+        success: false, 
+        error: creditCheck.error,
+        creditsNeeded: creditCheck.creditsNeeded
+      });
+    }
+
+    console.log(`💰 User ${req.user.id} has sufficient credits for video generation (${creditCheck.creditsNeeded} credits)`);
+
     // Create prediction with Kling v1.6 model
     const prediction = await replicate.predictions.create({
       model: "kwaivgi/kling-v1.6-standard",
@@ -576,13 +707,32 @@ export async function gen4AlephHandler(req: Request, res: Response) {
       });
     }
 
+    // Check and validate user credits before processing
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, error: "Authentication required" });
+    }
+
     // Validate and enforce video duration limits (max 5 seconds)
+    const videoDurationSeconds = Math.min(options.clipSeconds || 3, 5); // Default to 3 seconds, max 5
     if (options.clipSeconds && options.clipSeconds > 5) {
       return res.status(400).json({ 
         success: false, 
         error: "Video duration cannot exceed 5 seconds for cost control" 
       });
     }
+
+    const creditCheck = await checkAndDeductCredits(req.user.id, "video", VIDEO_MODELS.GEN4_ALEPH, videoDurationSeconds);
+    
+    if (!creditCheck.hasCredits) {
+      console.log(`❌ Credit check failed for user ${req.user.id}: ${creditCheck.error}`);
+      return res.status(402).json({ 
+        success: false, 
+        error: creditCheck.error,
+        creditsNeeded: creditCheck.creditsNeeded
+      });
+    }
+
+    console.log(`💰 User ${req.user.id} has sufficient credits for Gen4-Aleph video generation (${creditCheck.creditsNeeded} credits)`);
 
     // Convert video data URL to accessible URL if needed
     let videoUrl = video;
@@ -850,6 +1000,27 @@ export async function getStatusHandler(req: Request, res: Response) {
           operation.result = stored;
           operation.completedAt = new Date();
           operationStore.set(operationId, operation);
+
+          // Deduct credits for completed video operations
+          if (operation.type === "video" && operation.userId) {
+            try {
+              let videoDurationSeconds = 4; // Default for Kling
+              let modelName = VIDEO_MODELS.KLING;
+              
+              // Determine model and duration from operation details
+              if (operation.model?.includes('gen4-aleph')) {
+                modelName = VIDEO_MODELS.GEN4_ALEPH;
+                videoDurationSeconds = 3; // Default for Gen4-Aleph, could be stored in operation
+              }
+              
+              const creditsNeeded = calculateCreditsNeeded("video", modelName, videoDurationSeconds);
+              await deductCreditsAfterSuccess(operation.userId, creditsNeeded);
+              console.log(`✅ Successfully deducted ${creditsNeeded} credits for completed video generation (User: ${operation.userId}, Model: ${modelName})`);
+            } catch (error) {
+              console.error(`❌ Failed to deduct credits for video generation (User: ${operation.userId}):`, error);
+              // Continue with the operation even if credit deduction fails
+            }
+          }
 
           // Save video generation to database
           if (operation.type === "video" && operation.userId) {
