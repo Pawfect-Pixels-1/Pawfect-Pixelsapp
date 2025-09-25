@@ -23,7 +23,7 @@ const operationStore = new Map<string, types.OperationStatus>();
  * Create operation record and atomically reserve credits to prevent overcommit.
  * Credits are immediately reserved to eliminate race conditions and financial risk.
  */
-async function createOperationAndReserveCredits(
+export async function createOperationAndReserveCredits(
   operationId: string,
   userId: number,
   operationType: "image" | "video",
@@ -104,14 +104,14 @@ async function createOperationAndReserveCredits(
     return { hasCredits: true, creditsNeeded };
   } catch (error: any) {
     console.error("❌ Error creating operation and reserving credits:", error);
-    return { hasCredits: false, creditsNeeded, error: error.message || "Credit reservation failed" };
+    return { hasCredits: false, creditsNeeded: 0, error: error.message || "Credit reservation failed" };
   }
 }
 
 /**
  * Refund reserved credits for failed operations
  */
-async function refundCreditsForOperation(operationId: string): Promise<boolean> {
+export async function refundCreditsForOperation(operationId: string): Promise<boolean> {
   try {
     return await db.transaction(async (tx) => {
       // Get operation details with FOR UPDATE lock
@@ -377,8 +377,7 @@ export async function transformImageHandler(req: Request, res: Response) {
       status: "processing",
       createdAt: new Date(),
       input,
-      userId: req.user?.id, // Store user ID for later use
-      predictionId: prediction.id, // Store prediction ID for reference
+      userId: req.user?.id // Store user ID for later use
     });
 
     // Poll until done (max ~2 min)
@@ -429,7 +428,6 @@ export async function transformImageHandler(req: Request, res: Response) {
         error,
         createdAt: new Date(),
         failedAt: new Date(),
-        predictionId: prediction.id,
       });
       return res.status(500).json({ success: false, error, operationId });
     }
@@ -493,7 +491,6 @@ export async function transformImageHandler(req: Request, res: Response) {
       result: localUrls,
       createdAt: new Date(),
       completedAt: new Date(),
-      predictionId: prediction.id,
     });
 
     // Save transformation record to database if user is authenticated
@@ -959,7 +956,7 @@ export async function generateVideoHandler(req: Request, res: Response) {
     }
 
     // Store operation details for polling
-    const operation: types.OperationStatus = {
+    const operation: any = {
       status: 'processing',
       type: 'video',
       createdAt: new Date(),
@@ -1153,7 +1150,7 @@ export async function gen4AlephHandler(req: Request, res: Response) {
       userId: req.user?.id,
       model: "gen4-aleph",
       predictionId: prediction.id,
-    });
+    } as any);
 
     // Poll until done (Gen4-Aleph can take 1-3 minutes)
     let finalPrediction = prediction;
@@ -1206,7 +1203,7 @@ export async function gen4AlephHandler(req: Request, res: Response) {
         failedAt: new Date(),
         model: "gen4-aleph",
         predictionId: prediction.id,
-      });
+      } as any);
       return res.status(500).json({ 
         success: false, 
         error, 
@@ -1294,7 +1291,7 @@ export async function gen4AlephHandler(req: Request, res: Response) {
       completedAt,
       model: "gen4-aleph",
       predictionId: prediction.id,
-    });
+    } as any);
 
     // Save video generation record to database if user is authenticated
     if (req.user) {
