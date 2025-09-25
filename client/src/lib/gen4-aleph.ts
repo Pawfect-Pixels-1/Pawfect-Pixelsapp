@@ -1,7 +1,7 @@
 // Frontend API calls for Gen4-Aleph video generation
 import { useState } from 'react';
 import { apiRequest } from './queryClient';
-import type { Gen4AlephOptions } from '../../shared/types';
+import type { Gen4AlephOptions } from '../../../shared/types';
 
 export interface Gen4AlephVideoOptions extends Omit<Gen4AlephOptions, 'prompt'> {
   // All options except prompt, since prompt is passed separately
