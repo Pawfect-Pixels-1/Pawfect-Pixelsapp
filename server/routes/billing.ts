@@ -4,7 +4,7 @@ import { z } from "zod";
 import { 
   CheckoutRequestSchema, 
   loadStripeConfig, 
-  getPriceIdForPlan,
+  getPriceIdForSubscription,
   getPriceIdForCreditPack,
   billingConfig,
   VIDEO_MODELS,
@@ -36,7 +36,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
       if (!body.plan) {
         return res.status(400).json({ error: "Plan is required for subscription" });
       }
-      priceId = getPriceIdForPlan(body.plan);
+      priceId = getPriceIdForSubscription(body.plan);
       mode = "subscription";
     } else {
       if (!body.creditPack) {
