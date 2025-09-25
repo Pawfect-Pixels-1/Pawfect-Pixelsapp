@@ -4,9 +4,10 @@ import { storage, fileStorage, db } from "../storage";
 import * as types from "../../shared/types";
 import { FluxKontextProRequestSchema, Gen4AlephRequestSchema } from "../../shared/schema";
 import { calculateCreditsNeeded, billingConfig, VIDEO_MODELS } from "../../shared/billing";
-import { users } from "../../shared/schema";
-import { eq, sql } from "drizzle-orm";
+import { users, operations } from "../../shared/schema";
+import { eq, sql, and } from "drizzle-orm";
 import fetch from "node-fetch";
+import { randomUUID } from "crypto";
 
 if (!process.env.REPLICATE_API_TOKEN) {
   console.error("❌ REPLICATE_API_TOKEN is required but not set in environment");
@@ -19,49 +20,193 @@ const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 const operationStore = new Map<string, types.OperationStatus>();
 
 /**
- * Check if user has enough credits and deduct them after successful operation
+ * Create operation record and atomically reserve credits to prevent overcommit.
+ * Credits are immediately reserved to eliminate race conditions and financial risk.
  */
-async function checkAndDeductCredits(
+async function createOperationAndReserveCredits(
+  operationId: string,
   userId: number,
   operationType: "image" | "video",
-  model?: string,
-  seconds?: number
+  model: string,
+  quantity: number = 1,
+  seconds?: number,
+  requestParams?: any
 ): Promise<{ hasCredits: boolean; creditsNeeded: number; error?: string }> {
   try {
-    // Calculate credits needed
-    const creditsNeeded = calculateCreditsNeeded(operationType, model, seconds);
+    // Calculate credits needed per unit
+    const creditsPerUnit = calculateCreditsNeeded(operationType, model, seconds);
+    const creditsNeeded = creditsPerUnit * quantity;
     
-    // Get current user data
-    const [user] = await db.select().from(users).where(eq(users.id, userId));
-    if (!user) {
-      return { hasCredits: false, creditsNeeded, error: "User not found" };
-    }
+    // Atomically reserve credits and create operation record
+    await db.transaction(async (tx) => {
+      // Lock user row for update to prevent race conditions
+      const [user] = await tx.select().from(users).where(eq(users.id, userId)).for("update");
+      if (!user) {
+        throw new Error("User not found");
+      }
 
-    // Check if user has enough credits (daily remaining + balance)
-    const dailyRemaining = Math.max(0, (user.dailyCreditsCap || 0) - (user.dailyCreditsUsed || 0));
-    const totalAvailable = dailyRemaining + (user.creditsBalance || 0);
-    if (totalAvailable < creditsNeeded) {
-      return { 
-        hasCredits: false, 
-        creditsNeeded, 
-        error: `Insufficient credits. Need ${creditsNeeded}, have ${totalAvailable} (${dailyRemaining} daily + ${user.creditsBalance || 0} purchased)` 
-      };
-    }
+      // Calculate current available credits
+      const dailyRemaining = Math.max(0, (user.dailyCreditsCap || 0) - (user.dailyCreditsUsed || 0));
+      const totalAvailable = dailyRemaining + (user.creditsBalance || 0);
 
+      if (totalAvailable < creditsNeeded) {
+        throw new Error(`Insufficient credits. Need ${creditsNeeded} for ${quantity} ${operationType}(s), have ${totalAvailable} (${dailyRemaining} daily + ${user.creditsBalance || 0} purchased)`);
+      }
+
+      // Reserve credits by updating user balances and track the split
+      let remainingToReserve = creditsNeeded;
+      let newDailyUsed = user.dailyCreditsUsed || 0;
+      let newBalance = user.creditsBalance || 0;
+      let dailyPortionReserved = 0;
+      let balancePortionReserved = 0;
+
+      // First, reserve from daily credits (by increasing dailyCreditsUsed)
+      if (dailyRemaining > 0 && remainingToReserve > 0) {
+        dailyPortionReserved = Math.min(dailyRemaining, remainingToReserve);
+        newDailyUsed += dailyPortionReserved;
+        remainingToReserve -= dailyPortionReserved;
+      }
+
+      // Then, reserve from balance if needed
+      if (remainingToReserve > 0) {
+        balancePortionReserved = remainingToReserve;
+        newBalance -= balancePortionReserved;
+      }
+
+      // Update user credits to reflect the reservation
+      await tx
+        .update(users)
+        .set({
+          dailyCreditsUsed: newDailyUsed,
+          creditsBalance: newBalance,
+        })
+        .where(eq(users.id, userId));
+
+      // Create operation record for tracking with reservation details
+      await tx.insert(operations).values({
+        id: operationId,
+        userId: userId,
+        type: operationType,
+        model: model,
+        status: 'processing',
+        creditsPlanned: creditsNeeded,
+        creditsDeducted: true, // Credits are already reserved/deducted
+        dailyPortionReserved,
+        balancePortionReserved,
+        quantity: quantity,
+        durationSeconds: seconds || null,
+        requestParams: requestParams ? JSON.stringify(requestParams) : null
+      });
+
+      console.log(`💰 Operation ${operationId} created and ${creditsNeeded} credits reserved atomically for user ${userId}`);
+    });
+    
     return { hasCredits: true, creditsNeeded };
-  } catch (error) {
-    console.error("❌ Error checking credits:", error);
-    return { hasCredits: false, creditsNeeded: 0, error: "Credit check failed" };
+  } catch (error: any) {
+    console.error("❌ Error creating operation and reserving credits:", error);
+    return { hasCredits: false, creditsNeeded, error: error.message || "Credit reservation failed" };
   }
 }
 
-async function deductCreditsAfterSuccess(userId: number, creditsToDeduct: number): Promise<void> {
+/**
+ * Refund reserved credits for failed operations
+ */
+async function refundCreditsForOperation(operationId: string): Promise<boolean> {
   try {
-    // Deduct from daily credits first, then from balance
-    await db.transaction(async (tx) => {
-      const [user] = await tx.select().from(users).where(eq(users.id, userId));
-      if (!user) throw new Error("User not found");
+    return await db.transaction(async (tx) => {
+      // Get operation details with FOR UPDATE lock
+      const [operation] = await tx.select().from(operations)
+        .where(eq(operations.id, operationId))
+        .for("update");
+      
+      if (!operation) {
+        console.error(`❌ Operation ${operationId} not found for credit refund`);
+        return false;
+      }
 
+      // Check if credits were never deducted or already refunded
+      if (!operation.creditsDeducted) {
+        console.log(`💰 Credits not deducted for operation ${operationId}, nothing to refund`);
+        return true;
+      }
+
+      // Get user details
+      const [user] = await tx.select().from(users).where(eq(users.id, operation.userId));
+      if (!user) {
+        console.error(`❌ User ${operation.userId} not found for credit refund`);
+        return false;
+      }
+
+      // Refund credits by accurately reversing the original reservation split
+      const dailyToRefund = operation.dailyPortionReserved || 0;
+      const balanceToRefund = operation.balancePortionReserved || 0;
+      
+      let newDailyUsed = user.dailyCreditsUsed || 0;
+      let newBalance = user.creditsBalance || 0;
+      
+      // Restore daily credits by reducing dailyCreditsUsed (bounded at 0)
+      newDailyUsed = Math.max(0, newDailyUsed - dailyToRefund);
+      
+      // Restore balance credits
+      newBalance += balanceToRefund;
+
+      // Update user credits
+      await tx.update(users)
+        .set({
+          dailyCreditsUsed: newDailyUsed,
+          creditsBalance: newBalance,
+        })
+        .where(eq(users.id, operation.userId));
+
+      // Mark operation as refunded
+      await tx.update(operations)
+        .set({
+          creditsDeducted: false,
+          status: 'failed',
+          failedAt: new Date()
+        })
+        .where(eq(operations.id, operationId));
+
+      console.log(`💰 Refunded ${dailyToRefund + balanceToRefund} credits for failed operation ${operationId} (${dailyToRefund} daily, ${balanceToRefund} balance). User ${operation.userId}: Daily used: ${newDailyUsed}, Balance: ${newBalance}`);
+      
+      return true;
+    });
+  } catch (error) {
+    console.error(`❌ Failed to refund credits for operation ${operationId}:`, error);
+    return false;
+  }
+}
+
+/**
+ * Idempotent credit deduction for completed operations
+ */
+async function deductCreditsForOperation(operationId: string): Promise<boolean> {
+  try {
+    return await db.transaction(async (tx) => {
+      // Get operation details with FOR UPDATE lock
+      const [operation] = await tx.select().from(operations)
+        .where(eq(operations.id, operationId))
+        .for("update");
+      
+      if (!operation) {
+        console.error(`❌ Operation ${operationId} not found for credit deduction`);
+        return false;
+      }
+
+      // Check if credits already deducted (idempotency)
+      if (operation.creditsDeducted) {
+        console.log(`💰 Credits already deducted for operation ${operationId}, skipping`);
+        return true;
+      }
+
+      // Get user details
+      const [user] = await tx.select().from(users).where(eq(users.id, operation.userId));
+      if (!user) {
+        console.error(`❌ User ${operation.userId} not found for credit deduction`);
+        return false;
+      }
+
+      const creditsToDeduct = operation.creditsPlanned;
       let remainingToDeduct = creditsToDeduct;
       const dailyRemaining = Math.max(0, (user.dailyCreditsCap || 0) - (user.dailyCreditsUsed || 0));
       let newDailyUsed = user.dailyCreditsUsed || 0;
@@ -76,26 +221,36 @@ async function deductCreditsAfterSuccess(userId: number, creditsToDeduct: number
 
       // Then, deduct from balance if needed
       if (remainingToDeduct > 0) {
-        newBalance -= remainingToDeduct;
+        newBalance = Math.max(0, newBalance - remainingToDeduct); // Prevent negative balance
       }
 
       // Update user credits
-      await tx
-        .update(users)
+      await tx.update(users)
         .set({
           dailyCreditsUsed: newDailyUsed,
           creditsBalance: newBalance,
         })
-        .where(eq(users.id, userId));
+        .where(eq(users.id, operation.userId));
+
+      // Mark operation as credits deducted
+      await tx.update(operations)
+        .set({
+          creditsDeducted: true,
+          completedAt: new Date()
+        })
+        .where(eq(operations.id, operationId));
+
+      const finalDailyRemaining = Math.max(0, (user.dailyCreditsCap || 0) - newDailyUsed);
+      console.log(`✅ Deducted ${creditsToDeduct} credits for operation ${operationId}. User ${operation.userId}: Daily remaining: ${finalDailyRemaining}, Balance: ${newBalance}`);
       
-      const newDailyRemaining = Math.max(0, (user.dailyCreditsCap || 0) - newDailyUsed);
-      console.log(`💰 Deducted ${creditsToDeduct} credits from user ${userId}. Daily remaining: ${newDailyRemaining}, Balance: ${newBalance}`);
+      return true;
     });
   } catch (error) {
-    console.error("❌ Error deducting credits:", error);
-    throw error;
+    console.error(`❌ Failed to deduct credits for operation ${operationId}:`, error);
+    return false;
   }
 }
+
 
 /** --- Pin a known version for reproducibility (update as needed) --- */
 // Example version hash from the model’s API page:
@@ -160,33 +315,70 @@ export async function transformImageHandler(req: Request, res: Response) {
     }
 
     const numImages = input.num_images || 1;
-    const totalCreditsNeeded = calculateCreditsNeeded("image") * numImages;
-    const creditCheck = await checkAndDeductCredits(req.user.id, "image");
+
+    // Generate operation ID and reserve credits BEFORE creating prediction
+    const operationId = randomUUID();
+    const modelName = "kontext_pro"; // Use a consistent model name
+    
+    const creditCheck = await createOperationAndReserveCredits(
+      operationId,
+      req.user.id,
+      "image",
+      modelName,
+      numImages,
+      undefined, // no duration for images
+      { style, input }
+    );
     
     if (!creditCheck.hasCredits) {
       console.log(`❌ Credit check failed for user ${req.user.id}: ${creditCheck.error}`);
       return res.status(402).json({ 
         success: false, 
         error: creditCheck.error,
-        creditsNeeded: totalCreditsNeeded
+        creditsNeeded: creditCheck.creditsNeeded
       });
     }
 
-    console.log(`💰 User ${req.user.id} has sufficient credits. Processing ${numImages} images (${totalCreditsNeeded} credits)`);
+    console.log(`💰 User ${req.user.id} has sufficient credits. Processing ${numImages} images (${creditCheck.creditsNeeded} credits)`);
 
-    // Kick off prediction (Kontext returns an array of URLs)
-    const prediction = await replicate.predictions.create({
-      version: KONText_VERSION,
-      input,
-    });
+    // Now create prediction after credits are reserved
+    let prediction;
+    try {
+      prediction = await replicate.predictions.create({
+        version: KONText_VERSION,
+        input,
+      });
+      
+      // Update operation record with prediction ID
+      await db.update(operations)
+        .set({ 
+          predictionId: prediction.id,
+          status: 'processing'
+        })
+        .where(eq(operations.id, operationId));
+        
+      console.log(`🔄 Prediction ${prediction.id} created for operation ${operationId}`);
+    } catch (predictionError) {
+      console.error(`❌ Failed to create prediction for operation ${operationId}:`, predictionError);
+      
+      // Refund credits since prediction creation failed
+      await refundCreditsForOperation(operationId);
+      
+      return res.status(500).json({
+        success: false,
+        error: "Failed to start image transformation",
+        operationId
+      });
+    }
 
-    operationStore.set(prediction.id, {
-      id: prediction.id,
+    operationStore.set(operationId, {
+      id: operationId,
       type: "transform",
       status: "processing",
       createdAt: new Date(),
       input,
       userId: req.user?.id, // Store user ID for later use
+      predictionId: prediction.id, // Store prediction ID for reference
     });
 
     // Poll until done (max ~2 min)
@@ -196,10 +388,20 @@ export async function transformImageHandler(req: Request, res: Response) {
 
     while (finalPrediction.status === "starting" || finalPrediction.status === "processing") {
       if (Date.now() - start > timeoutMs) {
+        // Mark operation as failed in database and refund credits
+        await db.update(operations)
+          .set({
+            status: 'failed',
+            failedAt: new Date()
+          })
+          .where(eq(operations.id, operationId));
+        
+        await refundCreditsForOperation(operationId);
+        
         return res.status(408).json({
           success: false,
           error: "Request timed out. Please try again.",
-          operationId: prediction.id,
+          operationId,
         });
       }
       await sleep(2000);
@@ -210,15 +412,26 @@ export async function transformImageHandler(req: Request, res: Response) {
     if (finalPrediction.status !== "succeeded") {
       const error = (finalPrediction as any).error || "Transformation failed";
       console.error("❌ Transformation failed:", error);
-      operationStore.set(prediction.id, {
-        id: prediction.id,
+      // Mark operation as failed in database and refund credits
+      await db.update(operations)
+        .set({
+          status: 'failed',
+          failedAt: new Date()
+        })
+        .where(eq(operations.id, operationId));
+      
+      await refundCreditsForOperation(operationId);
+      
+      operationStore.set(operationId, {
+        id: operationId,
         type: "transform",
         status: "failed",
         error,
         createdAt: new Date(),
         failedAt: new Date(),
+        predictionId: prediction.id,
       });
-      return res.status(500).json({ success: false, error, operationId: prediction.id });
+      return res.status(500).json({ success: false, error, operationId });
     }
 
     // Validate and safely extract output URLs
@@ -229,7 +442,17 @@ export async function transformImageHandler(req: Request, res: Response) {
       replicateUrls = [finalPrediction.output];
     } else {
       console.error('❌ Invalid prediction output format:', finalPrediction.output);
-      return res.status(500).json({ success: false, error: 'Invalid output format from AI service', operationId: prediction.id });
+      // Mark operation as failed in database and refund credits
+      await db.update(operations)
+        .set({
+          status: 'failed',
+          failedAt: new Date()
+        })
+        .where(eq(operations.id, operationId));
+      
+      await refundCreditsForOperation(operationId);
+      
+      return res.status(500).json({ success: false, error: 'Invalid output format from AI service', operationId });
     }
 
     // Download & store all outputs locally (prefer durable links)
@@ -255,13 +478,22 @@ export async function transformImageHandler(req: Request, res: Response) {
       }
     }
 
-    operationStore.set(prediction.id, {
-      id: prediction.id,
+    // Mark operation as completed in database
+    await db.update(operations)
+      .set({
+        status: 'completed',
+        completedAt: new Date()
+      })
+      .where(eq(operations.id, operationId));
+
+    operationStore.set(operationId, {
+      id: operationId,
       type: "transform",
       status: "completed",
       result: localUrls,
       createdAt: new Date(),
       completedAt: new Date(),
+      predictionId: prediction.id,
     });
 
     // Save transformation record to database if user is authenticated
@@ -310,20 +542,14 @@ export async function transformImageHandler(req: Request, res: Response) {
       }
     }
 
-    // Deduct credits after successful completion
-    try {
-      await deductCreditsAfterSuccess(req.user!.id, totalCreditsNeeded);
-      console.log(`✅ Successfully deducted ${totalCreditsNeeded} credits for user ${req.user!.id}`);
-    } catch (error) {
-      console.error(`❌ Failed to deduct credits for user ${req.user!.id}:`, error);
-      // Continue with successful response even if credit deduction fails
-    }
+    // Credits were already reserved upfront in the new system
+    console.log(`✅ Operation ${operationId} completed successfully. Credits were reserved upfront.`);
 
     return res.json({
       success: true,
       outputs: localUrls,               // new (array)
       transformedImage: localUrls[0],   // backward compat
-      operationId: prediction.id,
+      operationId,
     });
   } catch (error) {
     console.error("❌ Error in transform handler:", error);
@@ -338,6 +564,11 @@ export async function transformImageHandler(req: Request, res: Response) {
 export async function fluxKontextProHandler(req: Request, res: Response) {
   try {
     console.log("🎨 Starting FLUX.1 Kontext Pro transformation");
+    
+    // Check authentication
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, error: "Authentication required" });
+    }
     
     // Validate request body
     const validation = FluxKontextProRequestSchema.safeParse(req.body);
@@ -357,6 +588,31 @@ export async function fluxKontextProHandler(req: Request, res: Response) {
         error: "Prompt is required for FLUX.1 Kontext Pro" 
       });
     }
+
+    // Generate operation ID and reserve credits BEFORE creating prediction
+    const operationId = randomUUID();
+    const modelName = "flux_kontext_pro";
+    
+    const creditCheck = await createOperationAndReserveCredits(
+      operationId,
+      req.user.id,
+      "image",
+      modelName,
+      1, // single image
+      undefined, // no duration for images
+      { image, options }
+    );
+    
+    if (!creditCheck.hasCredits) {
+      console.log(`❌ Credit check failed for user ${req.user.id}: ${creditCheck.error}`);
+      return res.status(402).json({ 
+        success: false, 
+        error: creditCheck.error,
+        creditsNeeded: creditCheck.creditsNeeded
+      });
+    }
+
+    console.log(`💰 User ${req.user.id} has sufficient credits for FLUX.1 Kontext Pro (${creditCheck.creditsNeeded} credits)`);
 
     // Prepare input for FLUX.1 Kontext Pro model
     const input = {
@@ -378,13 +634,35 @@ export async function fluxKontextProHandler(req: Request, res: Response) {
       finetune_id: input.finetune_id
     });
 
-    // Create prediction with FLUX.1 Kontext Pro model
-    const prediction = await replicate.predictions.create({
-      model: "black-forest-labs/flux-kontext-pro",
-      input,
-    });
-
-    console.log(`🔄 FLUX.1 Kontext Pro prediction created: ${prediction.id}`);
+    // Now create prediction after credits are reserved
+    let prediction;
+    try {
+      prediction = await replicate.predictions.create({
+        model: "black-forest-labs/flux-kontext-pro",
+        input,
+      });
+      
+      // Update operation record with prediction ID
+      await db.update(operations)
+        .set({ 
+          predictionId: prediction.id,
+          status: 'processing'
+        })
+        .where(eq(operations.id, operationId));
+        
+      console.log(`🔄 FLUX.1 Kontext Pro prediction ${prediction.id} created for operation ${operationId}`);
+    } catch (predictionError) {
+      console.error(`❌ Failed to create FLUX.1 Kontext Pro prediction for operation ${operationId}:`, predictionError);
+      
+      // Refund credits since prediction creation failed
+      await refundCreditsForOperation(operationId);
+      
+      return res.status(500).json({
+        success: false,
+        error: "Failed to start image transformation",
+        operationId
+      });
+    }
 
     operationStore.set(prediction.id, {
       id: prediction.id,
@@ -598,9 +876,19 @@ export async function generateVideoHandler(req: Request, res: Response) {
       return res.status(401).json({ success: false, error: "Authentication required" });
     }
 
-    // Kling v1.6 typically generates 4-second videos (default)
-    const videoDurationSeconds = 4;
-    const creditCheck = await checkAndDeductCredits(req.user.id, "video", VIDEO_MODELS.KLING, videoDurationSeconds);
+    // Generate operation ID and reserve credits BEFORE creating prediction
+    const operationId = randomUUID();
+    const videoDurationSeconds = 4; // Kling v1.6 typically generates 4-second videos
+    
+    const creditCheck = await createOperationAndReserveCredits(
+      operationId,
+      req.user.id,
+      "video",
+      VIDEO_MODELS.KLING,
+      1, // quantity
+      videoDurationSeconds,
+      { prompt, imageSource }
+    );
     
     if (!creditCheck.hasCredits) {
       console.log(`❌ Credit check failed for user ${req.user.id}: ${creditCheck.error}`);
@@ -613,14 +901,38 @@ export async function generateVideoHandler(req: Request, res: Response) {
 
     console.log(`💰 User ${req.user.id} has sufficient credits for video generation (${creditCheck.creditsNeeded} credits)`);
 
-    // Create prediction with Kling v1.6 model
-    const prediction = await replicate.predictions.create({
-      model: "kwaivgi/kling-v1.6-standard",
-      input: {
-        prompt: prompt.trim(),
-        start_image: imageDataUrl,
-      },
-    });
+    // Now create prediction after credits are reserved
+    let prediction;
+    try {
+      prediction = await replicate.predictions.create({
+        model: "kwaivgi/kling-v1.6-standard",
+        input: {
+          prompt: prompt.trim(),
+          start_image: imageDataUrl,
+        },
+      });
+      
+      // Update operation record with prediction ID
+      await db.update(operations)
+        .set({ 
+          predictionId: prediction.id,
+          status: 'processing'
+        })
+        .where(eq(operations.id, operationId));
+        
+      console.log(`🔄 Kling prediction ${prediction.id} created for operation ${operationId}`);
+    } catch (predictionError) {
+      console.error(`❌ Failed to create Kling prediction for operation ${operationId}:`, predictionError);
+      
+      // Refund credits since prediction creation failed
+      await refundCreditsForOperation(operationId);
+      
+      return res.status(500).json({
+        success: false,
+        error: "Failed to start video generation",
+        operationId
+      });
+    }
 
     console.log(`🔄 Kling v1.6 prediction created: ${prediction.id}`);
 
@@ -655,18 +967,19 @@ export async function generateVideoHandler(req: Request, res: Response) {
       model: 'kling-v1.6-standard',
       originalFileName,
       originalFileUrl,
+      predictionId: prediction.id,
       input: {
         prompt,
         imageSource: imageSource || 'uploaded'
       }
     };
     
-    operationStore.set(prediction.id, operation);
+    operationStore.set(operationId, operation);
 
     // Return operation ID for status polling
     return res.json({
       success: true,
-      operationId: prediction.id,
+      operationId,
       status: 'processing',
       message: 'Video generation started. Use the operation ID to check status.'
     });
@@ -721,7 +1034,18 @@ export async function gen4AlephHandler(req: Request, res: Response) {
       });
     }
 
-    const creditCheck = await checkAndDeductCredits(req.user.id, "video", VIDEO_MODELS.GEN4_ALEPH, videoDurationSeconds);
+    // Generate operation ID and reserve credits BEFORE creating prediction
+    const operationId = randomUUID();
+    
+    const creditCheck = await createOperationAndReserveCredits(
+      operationId,
+      req.user.id,
+      "video",
+      VIDEO_MODELS.GEN4_ALEPH,
+      1, // quantity
+      videoDurationSeconds,
+      { video, options }
+    );
     
     if (!creditCheck.hasCredits) {
       console.log(`❌ Credit check failed for user ${req.user.id}: ${creditCheck.error}`);
@@ -757,9 +1081,14 @@ export async function gen4AlephHandler(req: Request, res: Response) {
         console.log(`📼 Video saved to storage: ${videoUrl}`);
       } catch (error) {
         console.error('❌ Failed to save input video:', error);
+        
+        // Refund credits since video processing failed
+        await refundCreditsForOperation(operationId);
+        
         return res.status(500).json({ 
           success: false, 
-          error: "Failed to process video input" 
+          error: "Failed to process video input",
+          operationId
         });
       }
     }
@@ -783,22 +1112,47 @@ export async function gen4AlephHandler(req: Request, res: Response) {
       videoUrl: videoUrl
     });
 
-    // Create prediction with pinned Gen4-Aleph model version
-    const prediction = await replicate.predictions.create({
-      model: "runwayml/gen4-aleph@latest", // Pin to latest stable version
-      input,
-    });
+    // Now create prediction after credits are reserved
+    let prediction;
+    try {
+      prediction = await replicate.predictions.create({
+        model: "runwayml/gen4-aleph@latest", // Pin to latest stable version
+        input,
+      });
+      
+      // Update operation record with prediction ID
+      await db.update(operations)
+        .set({ 
+          predictionId: prediction.id,
+          status: 'processing'
+        })
+        .where(eq(operations.id, operationId));
+        
+      console.log(`🔄 Gen4-Aleph prediction ${prediction.id} created for operation ${operationId}`);
+    } catch (predictionError) {
+      console.error(`❌ Failed to create Gen4-Aleph prediction for operation ${operationId}:`, predictionError);
+      
+      // Refund credits since prediction creation failed
+      await refundCreditsForOperation(operationId);
+      
+      return res.status(500).json({
+        success: false,
+        error: "Failed to start video generation",
+        operationId
+      });
+    }
 
     console.log(`🔄 Gen4-Aleph prediction created: ${prediction.id}`);
 
-    operationStore.set(prediction.id, {
-      id: prediction.id,
+    operationStore.set(operationId, {
+      id: operationId,
       type: "video",
       status: "processing",
       createdAt: new Date(),
       input,
       userId: req.user?.id,
       model: "gen4-aleph",
+      predictionId: prediction.id,
     });
 
     // Poll until done (Gen4-Aleph can take 1-3 minutes)
@@ -808,10 +1162,20 @@ export async function gen4AlephHandler(req: Request, res: Response) {
 
     while (finalPrediction.status === "starting" || finalPrediction.status === "processing") {
       if (Date.now() - start > timeoutMs) {
+        // Mark operation as failed in database and refund credits
+        await db.update(operations)
+          .set({
+            status: 'failed',
+            failedAt: new Date()
+          })
+          .where(eq(operations.id, operationId));
+        
+        await refundCreditsForOperation(operationId);
+        
         return res.status(408).json({
           success: false,
           error: "Video generation timed out. Please try again.",
-          operationId: prediction.id,
+          operationId,
           model: "gen4-aleph",
         });
       }
@@ -823,19 +1187,30 @@ export async function gen4AlephHandler(req: Request, res: Response) {
     if (finalPrediction.status !== "succeeded") {
       const error = (finalPrediction as any).error || "Gen4-Aleph video generation failed";
       console.error("❌ Gen4-Aleph generation failed:", error);
-      operationStore.set(prediction.id, {
-        id: prediction.id,
+      // Mark operation as failed in database and refund credits
+      await db.update(operations)
+        .set({
+          status: 'failed',
+          failedAt: new Date()
+        })
+        .where(eq(operations.id, operationId));
+      
+      await refundCreditsForOperation(operationId);
+      
+      operationStore.set(operationId, {
+        id: operationId,
         type: "video",
         status: "failed",
         error,
         createdAt: new Date(),
         failedAt: new Date(),
         model: "gen4-aleph",
+        predictionId: prediction.id,
       });
       return res.status(500).json({ 
         success: false, 
         error, 
-        operationId: prediction.id,
+        operationId,
         model: "gen4-aleph"
       });
     }
@@ -848,10 +1223,20 @@ export async function gen4AlephHandler(req: Request, res: Response) {
       outputVideoUrl = finalPrediction.output[0];
     } else {
       console.error('❌ Invalid Gen4-Aleph output format:', finalPrediction.output);
+      // Mark operation as failed in database and refund credits
+      await db.update(operations)
+        .set({
+          status: 'failed',
+          failedAt: new Date()
+        })
+        .where(eq(operations.id, operationId));
+      
+      await refundCreditsForOperation(operationId);
+      
       return res.status(500).json({ 
         success: false, 
         error: 'Invalid output format from Gen4-Aleph service', 
-        operationId: prediction.id,
+        operationId,
         model: "gen4-aleph"
       });
     }
@@ -884,7 +1269,7 @@ export async function gen4AlephHandler(req: Request, res: Response) {
       return res.status(500).json({ 
         success: false, 
         error: "Failed to save generated video", 
-        operationId: prediction.id,
+        operationId,
         model: "gen4-aleph"
       });
     }
@@ -892,14 +1277,23 @@ export async function gen4AlephHandler(req: Request, res: Response) {
     const completedAt = new Date();
     const predictTime = completedAt.getTime() - start;
 
-    operationStore.set(prediction.id, {
-      id: prediction.id,
+    // Mark operation as completed in database
+    await db.update(operations)
+      .set({
+        status: 'completed',
+        completedAt
+      })
+      .where(eq(operations.id, operationId));
+    
+    operationStore.set(operationId, {
+      id: operationId,
       type: "video",
       status: "completed",
       result: localVideoUrl,
       createdAt: new Date(),
       completedAt,
       model: "gen4-aleph",
+      predictionId: prediction.id,
     });
 
     // Save video generation record to database if user is authenticated
@@ -955,14 +1349,37 @@ export async function gen4AlephHandler(req: Request, res: Response) {
 export async function getStatusHandler(req: Request, res: Response) {
   try {
     const { operationId } = req.params;
-    const operation = operationStore.get(operationId);
-    if (!operation) {
+    
+    // First check database for operation record (new system uses UUID operation IDs)
+    const [dbOperation] = await db.select().from(operations).where(eq(operations.id, operationId));
+    if (!dbOperation) {
       return res.status(404).json({ success: false, error: "Operation not found" });
     }
 
-    if (operation.status === "processing") {
+    // Check if operation is already completed or failed
+    if (dbOperation.status === "completed" || dbOperation.status === "failed") {
+      const operationStore = new Map<string, types.OperationStatus>();
+      return res.json({ 
+        success: true, 
+        operation: {
+          id: dbOperation.id,
+          type: dbOperation.type,
+          status: dbOperation.status,
+          result: dbOperation.status === "completed" ? "Output available" : undefined,
+          error: dbOperation.status === "failed" ? "Operation failed" : undefined,
+          createdAt: dbOperation.createdAt,
+          completedAt: dbOperation.completedAt,
+          failedAt: dbOperation.failedAt,
+          userId: dbOperation.userId,
+          model: dbOperation.model
+        }
+      });
+    }
+
+    // If still processing, check prediction status using predictionId
+    if (dbOperation.status === "processing" && dbOperation.predictionId) {
       try {
-        const prediction = await replicate.predictions.get(operationId);
+        const prediction = await replicate.predictions.get(dbOperation.predictionId);
         if (prediction.status === "succeeded") {
           let outs: string[];
           if (Array.isArray(prediction.output)) {
@@ -971,11 +1388,28 @@ export async function getStatusHandler(req: Request, res: Response) {
             outs = [prediction.output];
           } else {
             console.error('❌ Invalid prediction output format in status check:', prediction.output);
-            operation.status = 'failed';
-            operation.error = 'Invalid output format from AI service';
-            operation.failedAt = new Date();
-            operationStore.set(operationId, operation);
-            return res.json({ success: true, operation });
+            
+            // Mark operation as failed in database
+            await db.update(operations)
+              .set({
+                status: 'failed',
+                failedAt: new Date()
+              })
+              .where(eq(operations.id, operationId));
+              
+            return res.json({ 
+              success: true, 
+              operation: {
+                id: operationId,
+                type: dbOperation.type,
+                status: 'failed',
+                error: 'Invalid output format from AI service',
+                createdAt: dbOperation.createdAt,
+                failedAt: new Date(),
+                userId: dbOperation.userId,
+                model: dbOperation.model
+              }
+            });
           }
 
           const stored: string[] = [];
@@ -983,11 +1417,11 @@ export async function getStatusHandler(req: Request, res: Response) {
             try {
               const resp = await fetch(outs[i]);
               const buf = Buffer.from(await resp.arrayBuffer());
-              const isVideo = operation.type === "video";
+              const isVideo = dbOperation.type === "video";
               const ext = isVideo ? ".mp4" : ".png"; // default if unknown
               const mime = isVideo ? "video/mp4" : "image/png";
               // Only save with userId if it exists
-              const file = await fileStorage.saveFile(buf, `${operation.type}_${operationId}_${i}${ext}`, mime, operation.userId || undefined);
+              const file = await fileStorage.saveFile(buf, `${dbOperation.type}_${operationId}_${i}${ext}`, mime, dbOperation.userId || undefined);
               const protocol = req.protocol || 'http';
               const host = req.get('host') || 'localhost';
               stored.push(`${protocol}://${host}${file.url}`);
@@ -996,66 +1430,74 @@ export async function getStatusHandler(req: Request, res: Response) {
             }
           }
 
-          operation.status = "completed";
-          operation.result = stored;
-          operation.completedAt = new Date();
-          operationStore.set(operationId, operation);
+          // Mark operation as completed in database
+          await db.update(operations)
+            .set({
+              status: 'completed',
+              completedAt: new Date()
+            })
+            .where(eq(operations.id, operationId));
 
-          // Deduct credits for completed video operations
-          if (operation.type === "video" && operation.userId) {
-            try {
-              let videoDurationSeconds = 4; // Default for Kling
-              let modelName = VIDEO_MODELS.KLING;
-              
-              // Determine model and duration from operation details
-              if (operation.model?.includes('gen4-aleph')) {
-                modelName = VIDEO_MODELS.GEN4_ALEPH;
-                videoDurationSeconds = 3; // Default for Gen4-Aleph, could be stored in operation
-              }
-              
-              const creditsNeeded = calculateCreditsNeeded("video", modelName, videoDurationSeconds);
-              await deductCreditsAfterSuccess(operation.userId, creditsNeeded);
-              console.log(`✅ Successfully deducted ${creditsNeeded} credits for completed video generation (User: ${operation.userId}, Model: ${modelName})`);
-            } catch (error) {
-              console.error(`❌ Failed to deduct credits for video generation (User: ${operation.userId}):`, error);
-              // Continue with the operation even if credit deduction fails
-            }
-          }
+          // Credits are already deducted in the new system (reserved upfront)
+          console.log(`✅ Operation ${operationId} completed successfully. Credits were reserved upfront.`);
 
-          // Save video generation to database
-          if (operation.type === "video" && operation.userId) {
-            try {
-              await storage.createTransformation({
-                userId: operation.userId,
-                type: 'video',
-                status: 'completed',
-                originalFileName: operation.originalFileName || 'uploaded_image',
-                originalFileUrl: operation.originalFileUrl || '',
-                transformationOptions: JSON.stringify({
-                  prompt: operation.input?.prompt || '',
-                  imageSource: operation.input?.imageSource || 'uploaded',
-                  model: operation.model || 'kling-v1.6-standard'
-                }),
-                resultFileUrls: stored,
-              });
-              console.log(`💾 Video generation saved to database for user: ${operation.userId}`);
-            } catch (error) {
-              console.error('Error saving video generation to database:', error);
-              // Don't fail the whole operation if database save fails
+          return res.json({ 
+            success: true, 
+            operation: {
+              id: operationId,
+              type: dbOperation.type,
+              status: "completed",
+              result: stored,
+              createdAt: dbOperation.createdAt,
+              completedAt: new Date(),
+              userId: dbOperation.userId,
+              model: dbOperation.model
             }
-          }
+          });
         } else if (prediction.status === "failed") {
-          operation.status = "failed";
-          operation.error = (prediction as any).error || "Operation failed";
-          operation.failedAt = new Date();
-          operationStore.set(operationId, operation);
+          // Mark operation as failed and refund credits
+          await db.update(operations)
+            .set({
+              status: 'failed',
+              failedAt: new Date()
+            })
+            .where(eq(operations.id, operationId));
+            
+          // Refund credits since operation failed
+          await refundCreditsForOperation(operationId);
+          
+          return res.json({ 
+            success: true, 
+            operation: {
+              id: operationId,
+              type: dbOperation.type,
+              status: 'failed',
+              error: prediction.error || 'Prediction failed',
+              createdAt: dbOperation.createdAt,
+              failedAt: new Date(),
+              userId: dbOperation.userId,
+              model: dbOperation.model
+            }
+          });
         }
+        // If still processing, continue polling
       } catch (e) {
         console.error("Error checking prediction status:", e);
       }
     }
 
-    return res.json({ success: true, operation });
+    // Return current processing status
+    return res.json({ 
+      success: true, 
+      operation: {
+        id: operationId,
+        type: dbOperation.type,
+        status: dbOperation.status,
+        createdAt: dbOperation.createdAt,
+        userId: dbOperation.userId,
+        model: dbOperation.model
+      }
+    });
   } catch (error) {
     console.error("❌ Error in status handler:", error);
     return res.status(500).json({ success: false, error: "Internal server error" });

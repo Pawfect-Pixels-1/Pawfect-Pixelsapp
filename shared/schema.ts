@@ -29,6 +29,28 @@ export const users = pgTable("users", {
 });
 
 /** ───────────────────────────────────────────────────────────
+ *  DB: operations - AI operation tracking for credit management
+ *  ─────────────────────────────────────────────────────────── */
+export const operations = pgTable("operations", {
+  id: text("id").primaryKey(), // Operation UUID (generated locally)
+  predictionId: text("prediction_id"), // Replicate prediction ID (set after prediction creation)
+  userId: integer("user_id").references(() => users.id).notNull(),
+  type: varchar("type", { length: 20 }).notNull(), // 'image' or 'video'
+  model: text("model").notNull(), // exact model name used
+  status: varchar("status", { length: 20 }).notNull(), // 'processing', 'completed', 'failed'
+  creditsPlanned: integer("credits_planned").notNull(), // credits this operation should cost
+  creditsDeducted: boolean("credits_deducted").default(false).notNull(), // idempotency flag
+  dailyPortionReserved: integer("daily_portion_reserved").default(0).notNull(), // credits reserved from daily quota
+  balancePortionReserved: integer("balance_portion_reserved").default(0).notNull(), // credits reserved from balance
+  quantity: integer("quantity").default(1).notNull(), // num_images or video count
+  durationSeconds: integer("duration_seconds"), // video duration (null for images)
+  requestParams: jsonb("request_params"), // store original request for audit
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  failedAt: timestamp("failed_at"),
+});
+
+/** ───────────────────────────────────────────────────────────
  *  DB: transformations - User's transformation history
  *  ─────────────────────────────────────────────────────────── */
 export const transformations = pgTable("transformations", {
@@ -99,10 +121,15 @@ export const processedWebhookEvents = pgTable("processed_webhook_events", {
 
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
+  operations: many(operations),
   transformations: many(transformations),
   files: many(userFiles),
   shareLinks: many(shareLinks),
   shareEvents: many(shareEvents),
+}));
+
+export const operationsRelations = relations(operations, ({ one }) => ({
+  user: one(users, { fields: [operations.userId], references: [users.id] }),
 }));
 
 export const shareLinksRelations = relations(shareLinks, ({ one }) => ({
