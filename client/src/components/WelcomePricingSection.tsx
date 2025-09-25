@@ -236,7 +236,7 @@ export function WelcomePricingSection({ onGetStarted }: WelcomePricingSectionPro
               <CardContent className="space-y-4">
                 <ul className="space-y-2">
                   {plan.features && plan.features.length > 0 && plan.features.map((feature, featureIndex) => (
-                    <li key={featureIndex} className="flex items-start gap-2">
+                    <li key={`${plan.name}-feature-${featureIndex}`} className="flex items-start gap-2">
                       <Check className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
                       <span className="text-sm text-gray-700">{feature}</span>
                     </li>
