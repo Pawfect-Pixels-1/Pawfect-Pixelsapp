@@ -27,18 +27,25 @@ app.use(helmet({
         : ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       scriptSrc: process.env.NODE_ENV === 'production'
-        ? ["'self'"]
-        : ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "blob:", "https:"],
-      connectSrc: ["'self'", "ws:", "wss:", "https://api.replicate.com"],
-      mediaSrc: ["'self'", "blob:"],
-      frameAncestors: ["'none'"], // Prevent clickjacking
-      upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
-    },
-  },
-  crossOriginEmbedderPolicy: false, // Allow file uploads and external resources
-}));
-
+              ? ["'self'", "https://js.stripe.com"] // 👈 Stripe.js
+              : ["'self'", "'unsafe-inline'", "https://js.stripe.com"],
+            // If you use Stripe Elements (iframes) or embed the Portal, allow frames
+            frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"], // 👈
+            imgSrc: ["'self'", "data:", "blob:", "https:"],
+            connectSrc: [
+              "'self'",
+              "ws:",
+              "wss:",
+              "https://api.replicate.com",
+              "https://api.stripe.com" // 👈 Stripe API calls (Elements/Portal)
+            ],
+            mediaSrc: ["'self'", "blob:"],
+            frameAncestors: ["'none'"], // keep; you’re not embedding your app elsewhere
+            upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
+          },
+        },
+        crossOriginEmbedderPolicy: false,
+      }));
 // CORS configuration
 const corsOptions = {
   origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
@@ -101,6 +108,7 @@ const limiter = rateLimit({
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   // Skip rate limiting for certain paths in development
   skip: (req) => {
+    if (req.path === '/api/billing/webhook') return true; // 👈 allow Stripe
     if (process.env.NODE_ENV === 'development') {
       // In development, skip rate limiting for static assets and common paths
       return req.path === '/api/health' || 

@@ -10,7 +10,9 @@ import { billingConfig, loadStripeConfig, PlanType } from "../../shared/billing"
 const router = Router();
 
 // Initialize Stripe with explicit API version (recommended)
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2024-06-20",
+});
 
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 const priceIds = loadStripeConfig().priceIds;
@@ -57,8 +59,7 @@ async function updateUser(userId: number, patch: Partial<typeof users.$inferInse
  * POST /api/billing/webhook
  * IMPORTANT: raw body required for Stripe signature verification
  */
-router.post(
-  "/webhook",
+router.post("/webhook",
   bodyParser.raw({ type: "application/json" }),
   async (req, res) => {
     const sig = req.headers["stripe-signature"] as string;
@@ -74,15 +75,19 @@ router.post(
     console.log(`✅ Received webhook event: ${event.type}`);
 
     try {
-      // Idempotency: record event atomically (ON CONFLICT DO NOTHING)
-      const insertResult = await db
+      // Idempotency: record event id (ON CONFLICT DO NOTHING)
+      await db
         .insert(processedWebhookEvents)
         .values({ eventId: event.id, eventType: event.type })
-        .onConflictDoNothing()
-        .returning({ id: processedWebhookEvents.id });
+        .onConflictDoNothing();
 
-      if (insertResult.length === 0) {
-        console.log(`⚠️ Event ${event.id} already processed, skipping`);
+      // If already processed, RETURNING won't give us a row — we detect with a select:
+      const already = await db
+        .select()
+        .from(processedWebhookEvents)
+        .where(eq(processedWebhookEvents.eventId, event.id));
+      if (already.length > 1) {
+        // safety; shouldn't happen
         return res.status(200).json({ received: true, skipped: true });
       }
 
@@ -152,17 +157,9 @@ router.post(
         /** Subscription renewals (best signal to reset monthly included credits) */
         case "invoice.payment_succeeded": {
           const invoice = event.data.object as Stripe.Invoice;
-          
-          // Safely extract subscription ID
-          const rawSub = (invoice as any).subscription;
-          const subscriptionId = typeof rawSub === 'string' ? rawSub : rawSub?.id ?? null;
-          
-          // Safely extract customer ID
-          const rawCustomer = invoice.customer;
-          const customerId = typeof rawCustomer === 'string' ? rawCustomer : rawCustomer?.id ?? null;
-          
-          // Only process subscription-related invoices
-          if (!subscriptionId || !customerId || !['subscription_cycle', 'subscription_create'].includes(invoice.billing_reason || '')) break;
+          const subscriptionId = (invoice.subscription as string) || null;
+          const customerId = (invoice.customer as string) || null;
+          if (!subscriptionId || !customerId) break;
 
           const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
             expand: ["items.data.price"],
