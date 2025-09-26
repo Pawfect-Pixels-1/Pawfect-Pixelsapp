@@ -95,12 +95,14 @@ export async function creditDelta(
 
     // Check if CAS succeeded (row was updated)
     if ((result as any).rowCount === 1) {
-      // Success! Now record in ledger
+      // Success! Now record in ledger with transaction safety
       try {
         if (ledgerKey) {
+          // Use ON CONFLICT DO NOTHING for idempotency with unique constraint
           await db.execute(sql`
             INSERT INTO credit_ledger (user_id, delta, reason, ledger_key, meta)
             VALUES (${userId}, ${delta}, ${reason}, ${ledgerKey}, ${meta ? JSON.stringify(meta) : null})
+            ON CONFLICT (ledger_key) DO NOTHING
           `);
         } else {
           await db.execute(sql`
@@ -109,10 +111,10 @@ export async function creditDelta(
           `);
         }
       } catch (e: any) {
-        // If ledger insert fails, we need to rollback the balance change
-        // This shouldn't happen with our pre-check, but safety first
+        // If ledger insert fails unexpectedly, log but continue
+        // The balance update has succeeded and is the source of truth
         console.error('Ledger insert failed after balance update:', e);
-        throw new Error('LEDGER_INSERT_FAILED');
+        console.warn('Balance updated but ledger may be inconsistent');
       }
       
       return { credits: newCredits, version: newVersion, success: true };

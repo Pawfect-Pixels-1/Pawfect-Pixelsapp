@@ -89,19 +89,16 @@ router.post("/webhook",
     console.log(`✅ Received webhook event: ${event.type}`);
 
     try {
-      // Idempotency: record event id (ON CONFLICT DO NOTHING)
-      await db
-        .insert(processedWebhookEvents)
-        .values({ eventId: event.id, eventType: event.type })
-        .onConflictDoNothing();
+      // Idempotency: attempt to insert event id, skip if already exists
+      const insertResult = await db.execute(sql`
+        INSERT INTO processed_webhook_events (event_id, event_type) 
+        VALUES (${event.id}, ${event.type})
+        ON CONFLICT (event_id) DO NOTHING
+        RETURNING id
+      `);
 
-      // If already processed, RETURNING won't give us a row — we detect with a select:
-      const already = await db
-        .select()
-        .from(processedWebhookEvents)
-        .where(eq(processedWebhookEvents.eventId, event.id));
-      if (already.length > 1) {
-        // safety; shouldn't happen
+      if ((insertResult as any).rowCount === 0) {
+        console.log(`⏭️ Event ${event.id} already processed, skipping`);
         return res.status(200).json({ received: true, skipped: true });
       }
 
