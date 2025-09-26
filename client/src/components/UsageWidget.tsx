@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Coins, Clock, Zap, Crown, Settings } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Coins, Clock, Zap, Crown, Settings, AlertTriangle, CheckCircle } from "lucide-react";
 import type { UsageInfo, PlanConfig } from "@/lib/stores/useBilling";
 import { useBilling } from "@/lib/stores/useBilling";
 
@@ -41,6 +42,49 @@ function planDisplayName(plan: string | undefined) {
   }
 }
 
+function getStatusMessage(status: string | undefined, plan: string | undefined): { message: string; variant: 'default' | 'warning' | 'destructive'; action?: string } {
+  if (!status || plan === 'trial') return { message: '', variant: 'default' };
+  
+  switch (status) {
+    case 'active':
+      return { message: 'Your subscription is active', variant: 'default' };
+    case 'trialing':
+      return { message: 'You\'re on a free trial', variant: 'default' };
+    case 'past_due':
+      return { 
+        message: 'Payment failed - please update your payment method', 
+        variant: 'warning',
+        action: 'Update Payment Method'
+      };
+    case 'unpaid':
+      return { 
+        message: 'Subscription suspended - payment required', 
+        variant: 'destructive',
+        action: 'Update Payment Method'
+      };
+    case 'paused':
+      return { 
+        message: 'Subscription paused - add payment method to resume', 
+        variant: 'warning',
+        action: 'Add Payment Method'
+      };
+    case 'canceled':
+      return { 
+        message: 'Subscription canceled', 
+        variant: 'default',
+        action: 'Resubscribe'
+      };
+    case 'incomplete':
+      return { 
+        message: 'Payment required to activate subscription', 
+        variant: 'warning',
+        action: 'Complete Payment'
+      };
+    default:
+      return { message: '', variant: 'default' };
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,6 +99,8 @@ export function UsageWidget({
   const { openCustomerPortal, isOpeningPortal } = useBilling();
 
   const isTrial = usage?.plan === "trial";
+  const statusInfo = getStatusMessage(usage?.status, usage?.plan);
+  
   const dailyLimit = useMemo(() => {
     const limit = currentPlan?.daily_credits ?? (isTrial ? 10 : 0);
     return Math.max(0, limit);
@@ -152,6 +198,45 @@ export function UsageWidget({
               <p className="text-xs text-red-600 font-medium">⚠️ Daily limit almost reached</p>
             )}
           </section>
+        )}
+
+        {/* Subscription Status Alert */}
+        {statusInfo.message && (
+          <Alert className={`${
+            statusInfo.variant === 'warning' ? 'border-yellow-500 bg-yellow-50' :
+            statusInfo.variant === 'destructive' ? 'border-red-500 bg-red-50' :
+            'border-green-500 bg-green-50'
+          }`}>
+            <div className="flex items-start gap-2">
+              {statusInfo.variant === 'warning' ? (
+                <AlertTriangle className="w-4 h-4 text-yellow-600 mt-0.5" />
+              ) : statusInfo.variant === 'destructive' ? (
+                <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5" />
+              ) : (
+                <CheckCircle className="w-4 h-4 text-green-600 mt-0.5" />
+              )}
+              <div className="flex-1">
+                <AlertDescription className={`text-sm ${
+                  statusInfo.variant === 'warning' ? 'text-yellow-800' :
+                  statusInfo.variant === 'destructive' ? 'text-red-800' :
+                  'text-green-800'
+                }`}>
+                  {statusInfo.message}
+                </AlertDescription>
+                {statusInfo.action && (
+                  <Button
+                    onClick={openCustomerPortal}
+                    disabled={isOpeningPortal}
+                    variant="outline"
+                    size="sm"
+                    className="mt-2 text-xs"
+                  >
+                    {statusInfo.action}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </Alert>
         )}
 
         {/* Trial Info */}

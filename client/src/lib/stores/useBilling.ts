@@ -28,7 +28,9 @@ export interface CreditPack {
 
 export interface UsageInfo {
   plan: string;
+  status?: string; // Subscription status: 'active', 'past_due', 'unpaid', 'paused', 'trialing', 'canceled', 'incomplete'
   trialEndsAt: string | null;
+  currentPeriodEnd?: string | null; // When current billing period ends
   dailyCreditsRemaining: number;
   creditsBalance: number;
   includedCreditsThisCycle: number;

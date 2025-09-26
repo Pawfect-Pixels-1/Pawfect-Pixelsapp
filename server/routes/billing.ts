@@ -242,6 +242,11 @@ router.get("/usage/me", requireAuth, async (req, res) => {
     const { credits, plan } = await getBalance(user.id);
     const normalizedPlan = normalizePlan(plan) as Plan;
 
+    // Get subscription status from user_billing table
+    const [billingInfo] = await db.select()
+      .from(userBilling)
+      .where(eq(userBilling.userId, user.id));
+
     // Trial end calculation
     let trialEndsAt: Date | null = null;
     if (normalizedPlan === "trial" && user.trialStartedAt) {
@@ -289,6 +294,8 @@ router.get("/usage/me", requireAuth, async (req, res) => {
 
     res.json({
       plan: normalizedPlan,
+      status: billingInfo?.status || (normalizedPlan === 'trial' ? 'trialing' : 'inactive'),
+      currentPeriodEnd: billingInfo?.currentPeriodEnd?.toISOString() || null,
       trialEndsAt,
       dailyCreditsRemaining,
       creditsBalance: credits,

@@ -223,7 +223,7 @@ router.post("/webhook",
           break;
         }
 
-        /** Plan switches mid-cycle */
+        /** Plan switches mid-cycle and status changes */
         case "customer.subscription.created":
         case "customer.subscription.updated": {
           const sub = event.data.object as Stripe.Subscription;
@@ -237,21 +237,66 @@ router.post("/webhook",
           if (!mapped || mapped.kind !== "subscription") break;
 
           const plan = normalizePlan(mapped.plan);
+          const included = PLAN_CREDITS[plan];
           const isPriority = plan === "premium";
           
-          await updateUserBilling(userId, {
+          // Handle status-specific adjustments
+          let userUpdateFields: any = {
             plan,
             stripeSubscriptionId: sub.id,
             isPriorityQueue: isPriority,
-          }, {
+          };
+          
+          let billingUpdateFields: any = {
             plan,
             stripeSubscriptionId: sub.id,
             status: sub.status as string,
-          });
+            currentPeriodEnd: sub.current_period_end ? new Date((sub.current_period_end as number) * 1000) : null,
+          };
+
+          // Status-specific logic
+          if (sub.status === 'paused') {
+            // During pause, reduce to trial-like limits
+            userUpdateFields.isPriorityQueue = false;
+            userUpdateFields.dailyCreditsCap = 10; // trial daily limit
+            console.log(`⏸️ User ${userId} subscription paused - reducing to trial limits`);
+          } else if (sub.status === 'active') {
+            // Active subscription - restore full benefits
+            userUpdateFields.includedCreditsThisCycle = included;
+            userUpdateFields.dailyCreditsCap = null; // Remove daily limits
+            console.log(`▶️ User ${userId} subscription active - full benefits restored`);
+          }
           
-          console.log(`📋 Sub ${sub.id} → user ${userId} plan=${plan}`);
+          await updateUserBilling(userId, userUpdateFields, billingUpdateFields);
+          
+          console.log(`📋 Sub ${sub.id} → user ${userId} plan=${plan} status=${sub.status}`);
           break;
         }
+
+        /** Failed payments - subscription becomes past_due */
+        case "invoice.payment_failed": {
+          const invoice = event.data.object as Stripe.Invoice;
+          const subscriptionId = (invoice as any).subscription as string || null;
+          const customerId = (invoice.customer as string) || null;
+          if (!subscriptionId || !customerId) break;
+
+          const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+          const customer = await stripe.customers.retrieve(customerId);
+          const userId = Number((customer as any)?.metadata?.userId);
+          if (!Number.isFinite(userId)) break;
+
+          // Update status to past_due but keep subscription active
+          await updateUserBilling(userId, {
+            // Keep existing plan and benefits during grace period
+          }, {
+            status: subscription.status, // Will be 'past_due'
+            currentPeriodEnd: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
+          });
+          
+          console.log(`⚠️ User ${userId} subscription past due - payment failed`);
+          break;
+        }
+
 
         /** Cancellation */
         case "customer.subscription.deleted": {
