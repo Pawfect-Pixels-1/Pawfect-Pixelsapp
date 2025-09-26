@@ -205,8 +205,25 @@ router.post("/checkout", requireAuth, async (req, res) => {
 router.post("/portal", requireAuth, async (req, res) => {
   try {
     const user = req.user!;
-    if (!user.stripeCustomerId) {
-      return res.status(400).json({ error: "No Stripe customer found. Please subscribe first." });
+    
+    // Get or create Stripe customer (same logic as checkout route)
+    let customerId = user.stripeCustomerId ?? undefined;
+    if (!customerId) {
+      const customer = await createStripeCustomer(user.id, user.email || undefined, user.username);
+      customerId = customer.id;
+
+      // Store in both users table and user_billing table
+      await db.update(users)
+        .set({ stripeCustomerId: customerId })
+        .where(eq(users.id, user.id));
+        
+      // Also create/update user_billing record
+      await db.execute(sql`
+        INSERT INTO user_billing (user_id, stripe_customer_id, plan, status)
+        VALUES (${user.id}, ${customerId}, ${user.plan}, 'inactive')
+        ON CONFLICT (user_id) DO UPDATE SET 
+          stripe_customer_id = EXCLUDED.stripe_customer_id
+      `);
     }
 
     if (!process.env.APP_ORIGIN) {
@@ -215,7 +232,7 @@ router.post("/portal", requireAuth, async (req, res) => {
     }
     
     const portalConfig: any = {
-      customer: user.stripeCustomerId,
+      customer: customerId,
       return_url: process.env.APP_ORIGIN, // Use only fixed origin
     };
     
