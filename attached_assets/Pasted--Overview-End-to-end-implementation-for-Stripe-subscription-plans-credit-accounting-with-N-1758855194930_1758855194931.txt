@@ -1,0 +1,798 @@
+# Overview
+
+End-to-end implementation for **Stripe subscription plans + credit accounting** with **Neon HTTP (no transactions)** using optimistic locking. Includes:
+
+* Postgres schema (Drizzle) + migrations
+* Credit ledger + idempotent reservation/commit/refund flow (CAS with `version`)
+* Stripe integration (subscriptions + one‑time credit packs)
+* Webhooks (subscribe/renew/cancel/payment\_failed + credit pack fulfillment)
+* API endpoints (status, checkout/portal sessions, credits reserve/commit/refund)
+* Shared feature gating map
+* Frontend hooks (React) for plan/credits + helpers + UI wiring
+
+> **Key idea:** Avoid `db.transaction()` entirely. Use **optimistic concurrency** with a `version` column and conditional `UPDATE … WHERE version = ? AND credits >= ?` (compare-and-swap). Retry a small number of times on contention. All credit changes are **append-only** in `credit_ledger`, and **idempotent** using a `ledger_key`.
+
+---
+
+## 1) Database & Drizzle schema
+
+### 1.1 Migrations (SQL)
+
+Create baseline tables and indexes. (Adapt to your migration runner.)
+
+```sql
+-- 001_init_users_credits.sql
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL UNIQUE,
+  password TEXT NOT NULL,
+  plan TEXT NOT NULL DEFAULT 'trial', -- 'trial'|'basic'|'advanced'|'premium'
+  credits INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 0, -- optimistic locking counter
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_plan ON users(plan);
+CREATE INDEX idx_users_updated_at ON users(updated_at);
+
+-- Credit movements (append-only)
+CREATE TABLE credit_ledger (
+  id BIGSERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  delta INTEGER NOT NULL, -- + for grant/refund, - for spend/reserve
+  reason TEXT NOT NULL,   -- e.g. 'subscription_grant', 'video_generation', 'refund', 'credit_pack'
+  ledger_key TEXT,        -- optional idempotency key (unique per logical operation)
+  meta JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_credit_ledger_key ON credit_ledger(ledger_key) WHERE ledger_key IS NOT NULL;
+CREATE INDEX idx_credit_ledger_user_created ON credit_ledger(user_id, created_at DESC);
+
+-- Optional: credit holds (if you want separate holds rather than immediate spend + refund on failure)
+CREATE TABLE credit_holds (
+  id UUID PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  status TEXT NOT NULL CHECK (status IN ('reserved','committed','canceled')),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_credit_holds_user ON credit_holds(user_id);
+CREATE INDEX idx_credit_holds_expires ON credit_holds(expires_at);
+
+-- Stripe links
+CREATE TABLE user_billing (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  stripe_customer_id TEXT UNIQUE,
+  stripe_subscription_id TEXT UNIQUE,
+  plan TEXT NOT NULL DEFAULT 'trial', -- mirror of subscription plan for convenience
+  current_period_end TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'inactive' -- 'active'|'past_due'|'canceled'|'trialing'|...
+);
+```
+
+> If you prefer not to manage `credit_holds`, you can **immediate-spend** on request start and **refund** if generation fails. The code below supports **both** patterns.
+
+### 1.2 Drizzle schema (TypeScript)
+
+```ts
+// packages/shared/src/schema.billing.ts
+import { pgTable, text, serial, integer, timestamp, jsonb, bigint, primaryKey } from 'drizzle-orm/pg-core';
+
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  username: text('username').notNull().unique(),
+  email: text('email').notNull().unique(),
+  password: text('password').notNull(),
+  plan: text('plan').notNull().default('trial'),
+  credits: integer('credits').notNull().default(0),
+  version: integer('version').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const creditLedger = pgTable('credit_ledger', {
+  id: bigint('id', { mode: 'number' }).primaryKey(),
+  userId: integer('user_id').notNull(),
+  delta: integer('delta').notNull(),
+  reason: text('reason').notNull(),
+  ledgerKey: text('ledger_key'),
+  meta: jsonb('meta'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const creditHolds = pgTable('credit_holds', {
+  id: text('id').primaryKey(),
+  userId: integer('user_id').notNull(),
+  amount: integer('amount').notNull(),
+  status: text('status').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const userBilling = pgTable('user_billing', {
+  userId: integer('user_id').primaryKey(),
+  stripeCustomerId: text('stripe_customer_id'),
+  stripeSubscriptionId: text('stripe_subscription_id'),
+  plan: text('plan').notNull().default('trial'),
+  currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+  status: text('status').notNull().default('inactive'),
+});
+```
+
+---
+
+## 2) Shared plan mapping & feature gating
+
+```ts
+// packages/shared/src/creditSystem.ts
+export type Plan = 'trial' | 'basic' | 'advanced' | 'premium';
+
+export const PLAN_CREDITS: Record<Plan, number> = {
+  trial: 50,
+  basic: 300,
+  advanced: 1500,
+  premium: 5000,
+};
+
+export const FEATURE_ACCESS: Record<Plan, Record<string, boolean>> = {
+  trial: {
+    image_basic: true,
+    image_advanced: false,
+    video_generation: false,
+    hd_downloads: false,
+  },
+  basic: {
+    image_basic: true,
+    image_advanced: true,
+    video_generation: false,
+    hd_downloads: true,
+  },
+  advanced: {
+    image_basic: true,
+    image_advanced: true,
+    video_generation: true,
+    hd_downloads: true,
+  },
+  premium: {
+    image_basic: true,
+    image_advanced: true,
+    video_generation: true,
+    hd_downloads: true,
+  },
+};
+
+export function hasFeature(plan: Plan, feature: keyof typeof FEATURE_ACCESS['trial'] | string) {
+  return !!FEATURE_ACCESS[plan]?.[feature as string];
+}
+```
+
+> Frontend imports `PLAN_CREDITS`, `FEATURE_ACCESS`, `hasFeature` for gating.
+
+---
+
+## 3) Stripe config & environment
+
+Add to `.env` (or Replit secrets):
+
+```
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# Subscription price IDs
+STRIPE_PRICE_TRIAL=price_trial_optional_or_empty
+STRIPE_PRICE_BASIC=price_basic_...
+STRIPE_PRICE_ADVANCED=price_advanced_...
+STRIPE_PRICE_PREMIUM=price_premium_...
+
+# One‑time credit packs
+STRIPE_PRICE_PACK_SMALL=price_pack_300
+STRIPE_PRICE_PACK_MEDIUM=price_pack_1500
+STRIPE_PRICE_PACK_LARGE=price_pack_5000
+
+APP_BASE_URL=https://your-app.example
+```
+
+---
+
+## 4) Backend services (Neon‑safe credits)
+
+### 4.1 Optimistic CAS helper
+
+```ts
+// server/services/credits.ts
+import { sql } from 'drizzle-orm';
+import { users, creditLedger, creditHolds } from '@shared/schema.billing';
+import { db } from '../db'; // your Drizzle client
+import crypto from 'node:crypto';
+
+const MAX_RETRIES = 5;
+
+export async function getBalance(userId: number) {
+  const [row] = await db.select().from(users).where(sql`${users.id} = ${userId}`).limit(1);
+  if (!row) throw new Error('User not found');
+  return { credits: row.credits, version: row.version, plan: row.plan };
+}
+
+export async function creditDelta(
+  userId: number,
+  delta: number,
+  reason: string,
+  ledgerKey?: string,
+  meta?: Record<string, any>
+) {
+  // If delta < 0, enforce non-negative balance via CAS
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const [row] = await db
+      .select({ id: users.id, credits: users.credits, version: users.version })
+      .from(users)
+      .where(sql`${users.id} = ${userId}`)
+      .limit(1);
+    if (!row) throw new Error('User not found');
+
+    if (delta < 0 && row.credits + delta < 0) {
+      throw new Error('INSUFFICIENT_CREDITS');
+    }
+
+    const newCredits = row.credits + delta;
+    const newVersion = row.version + 1;
+
+    const res = await db.execute(sql`
+      UPDATE ${users}
+      SET credits = ${newCredits}, version = ${newVersion}, updated_at = NOW()
+      WHERE id = ${userId} AND version = ${row.version}
+      RETURNING credits, version;
+    `);
+
+    if ((res as any).rowCount === 1) {
+      // Idempotent ledger insert
+      if (ledgerKey) {
+        try {
+          await db.insert(creditLedger).values({ userId, delta, reason, ledgerKey, meta });
+        } catch (e: any) {
+          // Unique conflict = already recorded; ok
+        }
+      } else {
+        await db.insert(creditLedger).values({ userId, delta, reason, meta });
+      }
+      return { credits: newCredits, version: newVersion };
+    }
+    // else: CAS failed - retry
+  }
+  throw new Error('CAS_CONFLICT');
+}
+
+export async function reserveCredits(
+  userId: number,
+  amount: number,
+  holdMinutes = 15,
+  idempotencyKey?: string
+) {
+  if (amount <= 0) throw new Error('Invalid amount');
+  const holdId = idempotencyKey || crypto.randomUUID();
+
+  // spend immediately and log hold (refund if not committed)
+  const { credits } = await creditDelta(userId, -amount, 'reserve', holdId, { amount });
+
+  const expires = new Date(Date.now() + holdMinutes * 60 * 1000);
+  try {
+    await db.insert(creditHolds).values({ id: holdId, userId, amount, status: 'reserved', expiresAt: expires });
+  } catch (e: any) {
+    // If duplicate, ensure we return consistent state
+  }
+  return { holdId, credits, expiresAt: expires.toISOString() };
+}
+
+export async function commitHold(holdId: string) {
+  const [hold] = await db.select().from(creditHolds).where(sql`${creditHolds.id} = ${holdId}`).limit(1);
+  if (!hold) throw new Error('HOLD_NOT_FOUND');
+  if (hold.status !== 'reserved') return { status: hold.status };
+
+  await db.execute(sql`UPDATE ${creditHolds} SET status = 'committed' WHERE id = ${holdId}`);
+  // No additional credit change (already spent at reserve time)
+  return { status: 'committed' };
+}
+
+export async function cancelHold(holdId: string) {
+  const [hold] = await db.select().from(creditHolds).where(sql`${creditHolds.id} = ${holdId}`).limit(1);
+  if (!hold) throw new Error('HOLD_NOT_FOUND');
+  if (hold.status !== 'reserved') return { status: hold.status };
+
+  await creditDelta(hold.userId, hold.amount, 'refund_hold', `refund_${holdId}`, { holdId });
+  await db.execute(sql`UPDATE ${creditHolds} SET status = 'canceled' WHERE id = ${holdId}`);
+  return { status: 'canceled' };
+}
+```
+
+> The reserve path **deducts immediately** (atomic via CAS) and creates a `credit_holds` row; failure paths refund by `cancelHold`. This avoids multi-statement transactions while staying consistent.
+
+### 4.2 Stripe service
+
+```ts
+// server/services/stripe.ts
+import Stripe from 'stripe';
+
+export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2024-06-20',
+});
+
+export const PRICES = {
+  trial: process.env.STRIPE_PRICE_TRIAL || undefined,
+  basic: process.env.STRIPE_PRICE_BASIC!,
+  advanced: process.env.STRIPE_PRICE_ADVANCED!,
+  premium: process.env.STRIPE_PRICE_PREMIUM!,
+  packs: {
+    small: process.env.STRIPE_PRICE_PACK_SMALL!,
+    medium: process.env.STRIPE_PRICE_PACK_MEDIUM!,
+    large: process.env.STRIPE_PRICE_PACK_LARGE!,
+  },
+};
+```
+
+### 4.3 Billing controller (endpoints)
+
+```ts
+// server/routes/billing.ts
+import express from 'express';
+import { stripe, PRICES } from '../services/stripe';
+import { db } from '../db';
+import { users, userBilling } from '@shared/schema.billing';
+import { sql } from 'drizzle-orm';
+import { PLAN_CREDITS } from '@shared/creditSystem';
+
+const router = express.Router();
+
+function requireAuth(req: any, res: any, next: any) {
+  if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
+  next();
+}
+
+router.get('/status', requireAuth, async (req, res) => {
+  const userId = req.session.userId as number;
+  const [u] = await db.select().from(users).where(sql`${users.id} = ${userId}`).limit(1);
+  const [b] = await db.select().from(userBilling).where(sql`${userBilling.userId} = ${userId}`).limit(1);
+  if (!u) return res.status(404).json({ error: 'User not found' });
+  res.json({
+    plan: u.plan,
+    credits: u.credits,
+    stripe: b || null,
+    features: {
+      image_basic: true,
+      image_advanced: ['advanced','premium','basic'].includes(u.plan),
+      video_generation: ['advanced','premium'].includes(u.plan),
+      hd_downloads: ['basic','advanced','premium'].includes(u.plan),
+    },
+  });
+});
+
+router.post('/checkout-session', requireAuth, async (req, res) => {
+  const userId = req.session.userId as number;
+  const { mode, priceId } = req.body as { mode: 'subscription'|'payment', priceId: string };
+
+  // Ensure Stripe customer
+  let [bill] = await db.select().from(userBilling).where(sql`${userBilling.userId} = ${userId}`).limit(1);
+  if (!bill?.stripeCustomerId) {
+    const customer = await stripe.customers.create({
+      metadata: { userId: String(userId) },
+    });
+    await db
+      .insert(userBilling)
+      .values({ userId, stripeCustomerId: customer.id, status: 'inactive' })
+      .onConflictDoUpdate({ target: userBilling.userId, set: { stripeCustomerId: customer.id } });
+    [bill] = await db.select().from(userBilling).where(sql`${userBilling.userId} = ${userId}`).limit(1);
+  }
+
+  const session = await stripe.checkout.sessions.create({
+    mode,
+    customer: bill!.stripeCustomerId!,
+    line_items: [{ price: priceId, quantity: 1 }],
+    success_url: `${process.env.APP_BASE_URL}/billing/success`,
+    cancel_url: `${process.env.APP_BASE_URL}/billing/cancel`,
+  });
+  res.json({ url: session.url });
+});
+
+router.post('/portal-session', requireAuth, async (req, res) => {
+  const userId = req.session.userId as number;
+  const [bill] = await db.select().from(userBilling).where(sql`${userBilling.userId} = ${userId}`).limit(1);
+  if (!bill?.stripeCustomerId) return res.status(400).json({ error: 'No Stripe customer' });
+
+  const ps = await stripe.billingPortal.sessions.create({
+    customer: bill.stripeCustomerId,
+    return_url: `${process.env.APP_BASE_URL}/dashboard`,
+  });
+  res.json({ url: ps.url });
+});
+
+export default router;
+```
+
+### 4.4 Stripe webhook handler
+
+```ts
+// server/routes/stripe-webhook.ts
+import express from 'express';
+import { stripe } from '../services/stripe';
+import { PLAN_CREDITS } from '@shared/creditSystem';
+import { db } from '../db';
+import { userBilling, users } from '@shared/schema.billing';
+import { sql } from 'drizzle-orm';
+import { creditDelta } from '../services/credits';
+
+const router = express.Router();
+
+router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'] as string;
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET!);
+  } catch (err: any) {
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        // Payment for either subscription or one-time pack
+        const session = event.data.object as any;
+        // Fulfillment is handled by subscription.updated for subs and payment_intent.succeeded for packs
+        break;
+      }
+      case 'customer.subscription.updated':
+      case 'customer.subscription.created': {
+        const sub = event.data.object as any; // Stripe.Subscription
+        const customerId = sub.customer as string;
+        const priceId = sub.items.data[0]?.price?.id as string | undefined;
+        const plan = mapPriceToPlan(priceId);
+
+        const [bill] = await db
+          .select()
+          .from(userBilling)
+          .where(sql`${userBilling.stripeCustomerId} = ${customerId}`)
+          .limit(1);
+        if (!bill) break;
+
+        await db
+          .insert(userBilling)
+          .values({
+            userId: bill.userId,
+            stripeCustomerId: customerId,
+            stripeSubscriptionId: sub.id,
+            plan,
+            status: sub.status,
+            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+          })
+          .onConflictDoUpdate({
+            target: userBilling.userId,
+            set: {
+              stripeCustomerId: customerId,
+              stripeSubscriptionId: sub.id,
+              plan,
+              status: sub.status,
+              currentPeriodEnd: new Date(sub.current_period_end * 1000),
+            },
+          });
+
+        // Mirror plan on users table
+        await db.execute(sql`UPDATE ${users} SET plan = ${plan}, updated_at = NOW() WHERE id = ${bill.userId}`);
+
+        // Grant monthly credits on start/renew
+        const grant = PLAN_CREDITS[plan];
+        if (grant && grant > 0) {
+          await creditDelta(bill.userId, grant, 'subscription_grant', `${sub.id}_${sub.current_period_start}`);
+        }
+        break;
+      }
+      case 'customer.subscription.deleted': {
+        const sub = event.data.object as any;
+        const customerId = sub.customer as string;
+        const [bill] = await db.select().from(userBilling).where(sql`${userBilling.stripeCustomerId} = ${customerId}`).limit(1);
+        if (!bill) break;
+        await db.execute(sql`UPDATE ${userBilling} SET status = 'canceled' WHERE user_id = ${bill.userId}`);
+        await db.execute(sql`UPDATE ${users} SET plan = 'basic' WHERE id = ${bill.userId}`); // or 'trial'
+        break;
+      }
+      case 'payment_intent.succeeded': {
+        // One‑time credit packs
+        const pi = event.data.object as any;
+        const priceId = pi.metadata?.priceId as string | undefined;
+        const userId = Number(pi.metadata?.userId);
+        if (userId && priceId) {
+          const amount = mapPriceToPackCredits(priceId);
+          if (amount > 0) {
+            await creditDelta(userId, amount, 'credit_pack', `pi_${pi.id}`, { priceId });
+          }
+        }
+        break;
+      }
+      case 'invoice.payment_failed': {
+        // Optionally downgrade or mark past_due
+        break;
+      }
+    }
+  } catch (err) {
+    console.error('Webhook handling error', err);
+    return res.status(500).send('Webhook handler failed');
+  }
+
+  res.json({ received: true });
+});
+
+function mapPriceToPlan(priceId?: string) {
+  if (!priceId) return 'trial';
+  if (priceId === process.env.STRIPE_PRICE_BASIC) return 'basic';
+  if (priceId === process.env.STRIPE_PRICE_ADVANCED) return 'advanced';
+  if (priceId === process.env.STRIPE_PRICE_PREMIUM) return 'premium';
+  return 'trial';
+}
+
+function mapPriceToPackCredits(priceId: string): number {
+  switch (priceId) {
+    case process.env.STRIPE_PRICE_PACK_SMALL: return 300;
+    case process.env.STRIPE_PRICE_PACK_MEDIUM: return 1500;
+    case process.env.STRIPE_PRICE_PACK_LARGE: return 5000;
+    default: return 0;
+  }
+}
+
+export default router;
+```
+
+> **Important:** Mount this webhook route with `express.raw()` **before** `express.json()` middleware on that path.
+
+### 4.5 Credits endpoints
+
+```ts
+// server/routes/credits.ts
+import express from 'express';
+import { reserveCredits, commitHold, cancelHold } from '../services/credits';
+
+const router = express.Router();
+
+function requireAuth(req: any, res: any, next: any) {
+  if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
+  next();
+}
+
+router.post('/reserve', requireAuth, async (req, res) => {
+  const userId = req.session.userId as number;
+  const { amount, idempotencyKey } = req.body as { amount: number; idempotencyKey?: string };
+  try {
+    const hold = await reserveCredits(userId, amount, 20, idempotencyKey);
+    res.json({ success: true, hold });
+  } catch (e: any) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+router.post('/commit', requireAuth, async (req, res) => {
+  const { holdId } = req.body as { holdId: string };
+  try {
+    const out = await commitHold(holdId);
+    res.json({ success: true, ...out });
+  } catch (e: any) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+router.post('/cancel', requireAuth, async (req, res) => {
+  const { holdId } = req.body as { holdId: string };
+  try {
+    const out = await cancelHold(holdId);
+    res.json({ success: true, ...out });
+  } catch (e: any) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+export default router;
+```
+
+### 4.6 Wiring routes
+
+```ts
+// server/index.ts (excerpt)
+import express from 'express';
+import billingRoutes from './routes/billing';
+import stripeWebhook from './routes/stripe-webhook';
+import creditRoutes from './routes/credits';
+
+const app = express();
+
+// Mount webhook FIRST with raw body
+app.use('/api/stripe', stripeWebhook);
+
+// Then your normal JSON middleware
+app.use(express.json({ limit: '2mb' }));
+
+app.use('/api/billing', billingRoutes);
+app.use('/api/credits', creditRoutes);
+
+// ... existing auth, generation routes, etc.
+```
+
+---
+
+## 5) Using credits around generation
+
+```ts
+// server/routes/generate.ts (outline)
+import express from 'express';
+import { reserveCredits, commitHold, cancelHold } from '../services/credits';
+
+const router = express.Router();
+
+router.post('/video', async (req: any, res) => {
+  if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
+  const userId = req.session.userId as number;
+
+  // 1) Reserve (spend now, refund if failure)
+  const cost = 20; // example per‑video cost
+  let holdId: string | null = null;
+
+  try {
+    const hold = await reserveCredits(userId, cost, 30, req.headers['idempotency-key'] as string | undefined);
+    holdId = hold.holdId;
+
+    // 2) Run model (Replicate etc.)
+    const result = await runVideoGeneration(req.body); // your existing impl
+
+    // 3) Commit on success
+    await commitHold(holdId);
+    res.json({ success: true, result });
+  } catch (e: any) {
+    if (holdId) {
+      try { await cancelHold(holdId); } catch {}
+    }
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+```
+
+---
+
+## 6) Frontend: hooks + UI wiring
+
+### 6.1 Query: billing status
+
+```ts
+// web/src/hooks/useBilling.ts
+import { useQuery, useMutation } from '@tanstack/react-query';
+
+export function useBillingStatus() {
+  return useQuery({
+    queryKey: ['billingStatus'],
+    queryFn: async () => {
+      const r = await fetch('/api/billing/status');
+      if (!r.ok) throw new Error('Failed');
+      return r.json() as Promise<{ plan: string; credits: number; features: Record<string, boolean> }>;
+    },
+    refetchInterval: 15000,
+  });
+}
+
+export function useCheckout() {
+  return useMutation({
+    mutationFn: async (p: { mode: 'subscription'|'payment'; priceId: string }) => {
+      const r = await fetch('/api/billing/checkout-session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(p) });
+      if (!r.ok) throw new Error('checkout failed');
+      const { url } = await r.json();
+      window.location.href = url;
+    },
+  });
+}
+
+export function usePortal() {
+  return useMutation({
+    mutationFn: async () => {
+      const r = await fetch('/api/billing/portal-session', { method: 'POST' });
+      if (!r.ok) throw new Error('portal failed');
+      const { url } = await r.json();
+      window.location.href = url;
+    },
+  });
+}
+```
+
+### 6.2 Feature gate helper
+
+```tsx
+// web/src/components/FeatureGate.tsx
+import { ReactNode } from 'react';
+import { useBillingStatus } from '../hooks/useBilling';
+
+export function FeatureGate({ feature, children, fallback }: { feature: string; children: ReactNode; fallback?: ReactNode }) {
+  const { data } = useBillingStatus();
+  if (!data) return null;
+  return data.features[feature] ? <>{children}</> : <>{fallback ?? null}</>;
+}
+```
+
+### 6.3 Use in buttons / UI
+
+```tsx
+// web/src/components/GenerateVideoButton.tsx
+import { useState } from 'react';
+import { useBillingStatus } from '../hooks/useBilling';
+
+export function GenerateVideoButton() {
+  const { data } = useBillingStatus();
+  const [loading, setLoading] = useState(false);
+
+  const onClick = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch('/api/credits/reserve', { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() }, body: JSON.stringify({ amount: 20 }) });
+      const { hold } = await r.json();
+
+      const job = await fetch('/api/generate/video', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ /* payload */ }) });
+      if (!job.ok) throw new Error('generation failed');
+
+      await fetch('/api/credits/commit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ holdId: hold.holdId }) });
+    } catch (e) {
+      // cancel on failure
+      // await fetch('/api/credits/cancel', ...)
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const disabled = !data?.features.video_generation || (data?.credits ?? 0) < 20;
+
+  return (
+    <button disabled={disabled || loading} onClick={onClick}>
+      {disabled ? 'Upgrade to Generate Video' : loading ? 'Generating…' : 'Generate Video'}
+    </button>
+  );
+}
+```
+
+### 6.4 Dashboard snippet
+
+```tsx
+// web/src/components/BillingSummary.tsx
+import { useBillingStatus, useCheckout, usePortal } from '../hooks/useBilling';
+
+export function BillingSummary() {
+  const { data } = useBillingStatus();
+  const checkout = useCheckout();
+  const portal = usePortal();
+
+  if (!data) return null;
+  return (
+    <div className="flex items-center gap-4">
+      <div>Plan: <strong>{data.plan}</strong></div>
+      <div>Credits: <strong>{data.credits}</strong></div>
+      <button onClick={() => checkout.mutate({ mode: 'subscription', priceId: import.meta.env.VITE_PRICE_ADVANCED })}>Upgrade</button>
+      <button onClick={() => checkout.mutate({ mode: 'payment', priceId: import.meta.env.VITE_PRICE_PACK_SMALL })}>Buy 300 credits</button>
+      <button onClick={() => portal.mutate()}>Manage Billing</button>
+    </div>
+  );
+}
+```
+
+---
+
+## 7) Notes, pitfalls, and ops
+
+* **Neon HTTP**: no server-side transactions. The **CAS UPDATE** pattern with `version` keeps credits consistent.
+* **Retries**: keep `MAX_RETRIES` small (3–5). Bubble `CAS_CONFLICT` up to the client as a retryable error.
+* **Idempotency**: Always include a `ledger_key` for grants/spends tied to external events (webhooks, generation jobs).
+* **Webhook ordering**: Stripe can deliver out of order; write handlers to be **idempotent** and resilient.
+* **Monthly credit grants**: Triggered on subscription `created/updated` at period start. If you need **daily refresh**, add a scheduled job that computes deltas and calls `creditDelta`.
+* **Feature map**: Keep a single source of truth (`@shared/creditSystem`) to avoid drift between frontend and backend.
+* **Security**: Validate that the authenticated user owns the hold before commit/cancel.
+* **Cleanup**: Periodically cancel expired holds (cron) and refund if you didn’t pre‑spend.
+
+---
+
+## 8) Minimal test checklist
+
+* Subscribe/downgrade/renew → plan mirrors on `users` + monthly credit grants logged in `credit_ledger`.
+* Purchase pack → `payment_intent.succeeded` adds credits once (idempotent).
+* High contention (2 tabs generate) → only one CAS succeeds; the other gets `INSUFFICIENT_CREDITS` or `CAS_CONFLICT`.
+* Reserve → model success → commit hold (no extra delta). Reserve → model failure → cancel hold (refund delta).
+* Frontend buttons disable when credits or plan features are insufficient.
