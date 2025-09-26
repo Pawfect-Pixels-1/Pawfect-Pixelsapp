@@ -322,9 +322,65 @@ router.get("/usage/me", requireAuth, async (req, res) => {
  */
 router.get("/plans", async (req, res) => {
   try {
+    // Transform plan data to include all required frontend properties
+    const transformedPlans = {
+      basic: {
+        name: "basic",
+        displayName: "Basic Plan", 
+        price: PLAN_PRICING.basic.monthly,
+        description: "Perfect for casual creators",
+        features: [
+          "300 monthly image transforms",
+          "Basic AI styles",
+          "HD downloads", 
+          "Email support"
+        ],
+        included_credits: 300,
+        daily_credits: 20,
+        is_priority_queue: false,
+        video_models: []
+      },
+      advanced: {
+        name: "advanced",
+        displayName: "Advanced Plan",
+        price: PLAN_PRICING.advanced.monthly, 
+        description: "For serious content creators",
+        features: [
+          "1,500 monthly image transforms",
+          "Video generation (up to 4s)",
+          "Premium AI styles",
+          "HD downloads",
+          "Priority support"
+        ],
+        included_credits: 1500,
+        daily_credits: 50,
+        is_priority_queue: false,
+        video_models: ["kling_v1_6"]
+      },
+      premium: {
+        name: "premium",
+        displayName: "Premium Plan", 
+        price: PLAN_PRICING.premium.monthly,
+        description: "For professionals & agencies",
+        features: [
+          "5,000 monthly image transforms",
+          "Long-form video generation (up to 5s)",
+          "All AI styles & models", 
+          "HD & 4K downloads",
+          "Commercial license",
+          "Priority processing",
+          "Dedicated support"
+        ],
+        included_credits: 5000,
+        daily_credits: 100,
+        is_priority_queue: true,
+        video_models: ["kling_v1_6", "gen4_aleph"]
+      }
+    };
+
     res.json({
       success: true,
-      plans: PLAN_PRICING,
+      plans: transformedPlans,
       creditPacks: CREDIT_PACKS
     });
   } catch (error) {
