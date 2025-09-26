@@ -50,7 +50,7 @@ export function PricingPage({ onBack }: PricingPageProps) {
   };
 
   // Sort plans by price for consistent ordering
-  const planArray = Object.values(plans).sort((a, b) => a.price - b.price);
+  const planArray = plans ? Object.values(plans).sort((a, b) => a.price - b.price) : [];
   const isTrialUser = usage?.plan === 'trial';
 
   return (

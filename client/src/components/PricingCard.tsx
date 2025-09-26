@@ -52,8 +52,8 @@ export function PricingCard({ plan, currentPlan, isPopular, onSelect, isLoading 
         <div className="space-y-2">
           <div className="text-sm font-semibold text-black">What's included:</div>
           <ul className="space-y-2">
-            {plan.features.map((feature, index) => (
-              <li key={index} className="flex items-start gap-2">
+            {plan.features.map((feature) => (
+              <li key={`${plan.name}-${feature}`} className="flex items-start gap-2">
                 <Check className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
                 <span className="text-sm text-gray-700">{feature}</span>
               </li>
@@ -65,7 +65,7 @@ export function PricingCard({ plan, currentPlan, isPopular, onSelect, isLoading 
           <div className="text-xs text-gray-600">
             <div>💰 {plan.included_credits.toLocaleString()} credits/month included</div>
             <div>⚡ {plan.daily_credits} daily credits limit</div>
-            {plan.video_models.length > 0 && (
+            {plan.video_models?.length > 0 && (
               <div>🎬 Video generation available</div>
             )}
             {plan.is_priority_queue && (
