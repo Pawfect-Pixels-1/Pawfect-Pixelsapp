@@ -3,11 +3,12 @@ import fs from "fs";
 import path, { dirname } from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer, createLogger, type ServerOptions } from "vite";
+import { type Server } from "http";
+import { nanoid } from "nanoid";
+import viteConfig from "../vite.config";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import { type Server } from "http";
-import viteConfig from "../vite.config";
-import { nanoid } from "nanoid";
 
 const viteLogger = createLogger();
 
@@ -18,24 +19,21 @@ export function log(message: string, source = "express") {
     second: "2-digit",
     hour12: true,
   });
-
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
 export async function setupVite(app: Express, server: Server) {
-  // Detect Replit-ish env (loosely)
+  // Detect Replit env heuristically
   const isReplit = !!process.env.REPL_ID || !!process.env.REPLIT_DB_URL || !!process.env.REPL_SLUG;
 
   const serverOptions: ServerOptions = {
     middlewareMode: true,
     hmr: isReplit
       ? {
-          server,          // reuse your HTTP server
+          server,          // reuse the existing HTTP server
           protocol: "wss", // Replit proxies WS over TLS
-          clientPort: 443, // force browser to use 443
-          // host is optional; Replit sets it via origin/proxy.
-          // If you still see wrong host in logs, uncomment & set explicitly:
-          // host: `${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`,
+          clientPort: 443, // browsers can only reach 443 externally
+          // host: process.env.PUBLIC_HOST, // uncomment if you want to force host
         }
       : { server },
     allowedHosts: true,
@@ -55,10 +53,11 @@ export async function setupVite(app: Express, server: Server) {
     appType: "custom",
   });
 
+  // Vite middlewares (transforms, HMR client, /@id/, etc.)
   app.use(vite.middlewares);
 
+  // SPA fallback — but DO NOT swallow API routes
   app.use("*", async (req, res, next) => {
-    // Don’t intercept API endpoints (important for webhooks & JSON routes)
     if (req.originalUrl.startsWith("/api/")) return next();
 
     const url = req.originalUrl;
@@ -67,6 +66,8 @@ export async function setupVite(app: Express, server: Server) {
 
       // Always reload index.html from disk in dev
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
+
+      // Cache-bust the client entry
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`
@@ -81,13 +82,12 @@ export async function setupVite(app: Express, server: Server) {
   });
 }
 
-
 export function serveStatic(app: Express) {
   const distPath = path.resolve(__dirname, "public");
 
   if (!fs.existsSync(distPath)) {
     throw new Error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`,
+      `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
   }
 
