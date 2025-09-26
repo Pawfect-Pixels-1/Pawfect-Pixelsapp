@@ -23,9 +23,21 @@ export function log(message: string, source = "express") {
 }
 
 export async function setupVite(app: Express, server: Server) {
+  // Detect Replit-ish env (loosely)
+  const isReplit = !!process.env.REPL_ID || !!process.env.REPLIT_DB_URL || !!process.env.REPL_SLUG;
+
   const serverOptions: ServerOptions = {
     middlewareMode: true,
-    hmr: { server },
+    hmr: isReplit
+      ? {
+          server,          // reuse your HTTP server
+          protocol: "wss", // Replit proxies WS over TLS
+          clientPort: 443, // force browser to use 443
+          // host is optional; Replit sets it via origin/proxy.
+          // If you still see wrong host in logs, uncomment & set explicitly:
+          // host: `${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`,
+        }
+      : { server },
     allowedHosts: true,
   };
 
@@ -44,23 +56,22 @@ export async function setupVite(app: Express, server: Server) {
   });
 
   app.use(vite.middlewares);
+
   app.use("*", async (req, res, next) => {
+    // Don’t intercept API endpoints (important for webhooks & JSON routes)
+    if (req.originalUrl.startsWith("/api/")) return next();
+
     const url = req.originalUrl;
-
     try {
-      const clientTemplate = path.resolve(
-        __dirname,
-        "..",
-        "client",
-        "index.html",
-      );
+      const clientTemplate = path.resolve(__dirname, "..", "client", "index.html");
 
-      // always reload the index.html file from disk incase it changes
+      // Always reload index.html from disk in dev
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
-        `src="/src/main.tsx?v=${nanoid()}"`,
+        `src="/src/main.tsx?v=${nanoid()}"`
       );
+
       const page = await vite.transformIndexHtml(url, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
@@ -69,6 +80,7 @@ export async function setupVite(app: Express, server: Server) {
     }
   });
 }
+
 
 export function serveStatic(app: Express) {
   const distPath = path.resolve(__dirname, "public");

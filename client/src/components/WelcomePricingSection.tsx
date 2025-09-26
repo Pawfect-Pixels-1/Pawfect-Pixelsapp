@@ -100,7 +100,12 @@ export function WelcomePricingSection({ onGetStarted }: WelcomePricingSectionPro
   };
 
   const displayPlans = Object.keys(plans).length > 0 ? plans : fallbackPlans;
-  const planArray = displayPlans ? Object.values(displayPlans).filter(Boolean).sort((a, b) => a.price - b.price) : [];
+  const planArray = displayPlans
+    ? Object.entries(displayPlans) // [slug, plan]
+        .map(([slug, plan]) => ({ slug, ...plan }))
+        .filter(Boolean)
+        .sort((a, b) => a.price - b.price)
+    : [];
 
   const getPlanIcon = (planName: string) => {
     switch (planName) {
@@ -202,7 +207,7 @@ export function WelcomePricingSection({ onGetStarted }: WelcomePricingSectionPro
         {/* Paid Plans */}
         {planArray && planArray.length > 0 && planArray.map((plan, index) => (
           <motion.div
-            key={plan.name}
+            key={plan.slug}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.9 + index * 0.1 }}
@@ -235,8 +240,8 @@ export function WelcomePricingSection({ onGetStarted }: WelcomePricingSectionPro
 
               <CardContent className="space-y-4">
                 <ul className="space-y-2">
-                  {plan.features && plan.features.length > 0 && plan.features.map((feature, featureIndex) => (
-                    <li key={`${plan.name}-feature-${featureIndex}`} className="flex items-start gap-2">
+                  {plan.features && plan.features.length > 0 && plan.features.map((feature) => (
+                    <li key={`${plan.slug}-${feature}`} className="flex items-start gap-2">
                       <Check className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
                       <span className="text-sm text-gray-700">{feature}</span>
                     </li>
