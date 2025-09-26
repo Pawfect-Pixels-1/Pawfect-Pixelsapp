@@ -7,6 +7,7 @@ import helmet from "helmet";
 import path from "path";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { cronJobService } from "./services/cronJobs";
 
 const app = express();
 
@@ -235,5 +236,12 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+    
+    // Start cron jobs for automated exports
+    try {
+      cronJobService.start();
+    } catch (error) {
+      console.error('❌ Failed to start cron jobs:', error);
+    }
   });
 })();

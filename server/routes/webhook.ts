@@ -16,6 +16,7 @@ import {
   normalizePlan, 
   type Plan 
 } from "../../shared/creditSystem";
+import { getGoogleSheetsService } from "../services/googleSheets";
 
 const router = Router();
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
@@ -279,6 +280,17 @@ router.post("/webhook",
 
         default:
           console.log(`🤷 Unhandled event type: ${event.type}`);
+      }
+
+      // Stream webhook event to Google Sheets (async, don't wait)
+      try {
+        const sheetsService = getGoogleSheetsService();
+        sheetsService.exportStripeEvent(event).catch((error) => {
+          console.error('❌ Failed to stream webhook to Google Sheets:', error);
+        });
+      } catch (error) {
+        // Silently fail - don't break webhook processing
+        console.error('❌ Google Sheets service error:', error);
       }
 
       return res.status(200).json({ received: true });

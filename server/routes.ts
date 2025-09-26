@@ -8,6 +8,7 @@ import { registerHandler, loginHandler, logoutHandler, getCurrentUserHandler, re
 import { storage, fileStorage } from "./storage";
 import { billingRouter } from "./routes/billing";
 import { webhookRouter } from "./routes/webhook";
+import { googleSheetsRouter } from "./routes/googleSheets";
 import RealtimeService from "./websocket";
 import { setUserCreditsHandler, setTestInjectionHandler, getOperationHandler, getUserOperationsHandler } from "./dev-endpoints";
 
@@ -278,6 +279,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Billing routes
   app.use("/api/billing", billingRouter);
   app.use("/api/billing", webhookRouter);
+
+  // Google Sheets export routes
+  app.use("/api/admin", googleSheetsRouter);
 
   // Health check endpoint
   app.get("/api/health", (req, res) => {
