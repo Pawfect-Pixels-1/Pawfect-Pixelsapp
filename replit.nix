@@ -1,3 +1,9 @@
-{ pkgs }: { deps = [
-  pkgs.stripe-cli
- pkgs.nodejs_22 pkgs.git pkgs.cacert ]; }
+{ pkgs }: {
+  deps = [
+    pkgs.nodejs_22          # Node.js runtime
+    pkgs.nodePackages.npm   # npm CLI
+    pkgs.git                # git client
+    pkgs.cacert             # SSL certs
+    # pkgs.stripe-cli       # optional: only if you want Stripe CLI available in shell
+  ];
+}

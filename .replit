@@ -1,6 +1,12 @@
 modules = ["bash", "web", "postgresql-16", "nodejs-20"]
 run = "npm run dev"
-hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
+command = ["node"]
+[env]
+NODE_ENV = "development"
+PORT = "5000"
+
+[hidden]
+files = ["node_modules", "dist", ".config", ".git", "generated-icon.png"]
 
 [nix]
 channel = "stable-24_05"
@@ -9,46 +15,6 @@ channel = "stable-24_05"
 deploymentTarget = "autoscale"
 build = ["npm", "run", "build"]
 run = ["npm", "run", "start"]
-
-[[ports]]
-localPort = 5000
-externalPort = 5173
-
-[[ports]]
-localPort = 5173
-externalPort = 5000
-
-[[ports]]
-localPort = 32787
-externalPort = 3003
-
-[[ports]]
-localPort = 33031
-externalPort = 3002
-
-[[ports]]
-localPort = 33601
-externalPort = 80
-
-[[ports]]
-localPort = 34785
-externalPort = 3001
-
-[[ports]]
-localPort = 38435
-externalPort = 4200
-
-[[ports]]
-localPort = 41709
-externalPort = 3000
-
-[[ports]]
-localPort = 43961
-externalPort = 6800
-
-[[ports]]
-localPort = 45629
-externalPort = 6000
 
 [workflows]
 runButton = "Project"
