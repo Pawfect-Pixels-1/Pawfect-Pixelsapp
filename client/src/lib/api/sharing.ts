@@ -38,6 +38,7 @@ export async function createShareLink(request: CreateShareLinkRequest): Promise<
     headers: {
       'Content-Type': 'application/json',
     },
+    credentials: 'include',
     body: JSON.stringify(request),
   });
 
@@ -50,6 +51,7 @@ export async function recordShareEvent(request: RecordShareEventRequest): Promis
     headers: {
       'Content-Type': 'application/json',
     },
+    credentials: 'include',
     body: JSON.stringify(request),
   });
 
@@ -57,6 +59,8 @@ export async function recordShareEvent(request: RecordShareEventRequest): Promis
 }
 
 export async function getShareAnalytics(): Promise<ShareAnalyticsResponse> {
-  const response = await fetch('/api/analytics/shares');
+  const response = await fetch('/api/analytics/shares', {
+    credentials: 'include',
+  });
   return await response.json();
 }

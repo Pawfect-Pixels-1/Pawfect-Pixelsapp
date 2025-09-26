@@ -37,6 +37,7 @@ export const useAuth = create<AuthState>()(
           headers: {
             'Content-Type': 'application/json',
           },
+          credentials: 'include',
           body: JSON.stringify({ username, password }),
         });
         
@@ -77,6 +78,7 @@ export const useAuth = create<AuthState>()(
           headers: {
             'Content-Type': 'application/json',
           },
+          credentials: 'include',
           body: JSON.stringify({ username, password, email }),
         });
         
@@ -114,6 +116,7 @@ export const useAuth = create<AuthState>()(
       try {
         const response = await fetch('/api/auth/logout', {
           method: 'POST',
+          credentials: 'include',
         });
         
         if (response.ok) {
@@ -148,7 +151,9 @@ export const useAuth = create<AuthState>()(
 
     checkAuth: async () => {
       try {
-        const response = await fetch('/api/auth/me');
+        const response = await fetch('/api/auth/me', {
+          credentials: 'include',
+        });
         const data = await response.json();
         
         if (response.ok && data.success) {
