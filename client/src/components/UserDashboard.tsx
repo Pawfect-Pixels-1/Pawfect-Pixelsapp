@@ -6,6 +6,7 @@ import { ShareButton } from './ShareButton';
 import { useSharing } from '../lib/stores/useSharing';
 import { useServerAnalytics } from '../lib/hooks/useServerAnalytics';
 import { Play, Image, Film, FileText, ArrowUpDown, Share2, BarChart3 } from 'lucide-react';
+import { UsageWidget } from "./UsageWidget";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -194,7 +195,7 @@ export function UserDashboard() {
           <p className="text-gray-600">Manage your transformation history and files</p>
         </div>
       </Card>
-
+      <UsageWidget />
       {/* Tab Navigation */}
       <div className="flex flex-wrap gap-4 items-center justify-between">
         <div className="flex flex-wrap gap-2">
