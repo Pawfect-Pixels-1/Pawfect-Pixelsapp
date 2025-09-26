@@ -1,24 +1,58 @@
 import { Router } from "express";
-import Stripe from "stripe";
 import { z } from "zod";
-import {
-  CheckoutRequestSchema,
-  getPriceIdForSubscription,
-  getPriceIdForCreditPack,
-  billingConfig,
-  PlanType,
-  BillingPeriod,           // NEW: use period type
-  getRateLimitForPlan,     // use your helper
-} from "../../shared/billing";
+import { eq } from "drizzle-orm";
 import { requireAuth } from "../auth";
 import { db } from "../storage";
-import { users } from "../../shared/schema";
-import { eq } from "drizzle-orm";
+import { users, userBilling } from "../../shared/schema";
+import { 
+  getBalance, 
+  getCreditHistory 
+} from "../services/credits";
+import {
+  stripe,
+  getSubscriptionPriceId,
+  getCreditPackPriceId,
+  createStripeCustomer,
+  createSubscriptionCheckout,
+  createCreditPackCheckout,
+  createBillingPortalSession
+} from "../services/stripe";
+import {
+  PLAN_CREDITS,
+  hasFeature,
+  getRateLimit,
+  canGenerateVideo,
+  getAvailableVideoModels,
+  CREDIT_PACKS,
+  PLAN_PRICING,
+  normalizePlan,
+  isValidPlan,
+  isValidCreditPack,
+  type Plan
+} from "../../shared/creditSystem";
 
 const router = Router();
 
-// Initialize Stripe (using account default API version)
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+// Request validation schemas
+const CheckoutRequestSchema = z
+  .object({
+    type: z.enum(["subscription", "credits"]),
+    plan: z.enum(["basic", "advanced", "premium"]).optional(),
+    billingPeriod: z.enum(["monthly", "yearly"]).optional().default("monthly"),
+    creditPack: z.enum(["small", "medium", "large"]).optional(),
+    successUrl: z.string().url(),
+    cancelUrl: z.string().url(),
+  })
+  .refine(
+    (data) => {
+      if (data.type === "subscription" && !data.plan) return false;
+      if (data.type === "credits" && !data.creditPack) return false;
+      return true;
+    },
+    {
+      message: "Plan is required for subscription; creditPack is required for credits",
+    }
+  );
 
 /**
  * POST /api/billing/checkout
@@ -62,49 +96,56 @@ router.post("/checkout", requireAuth, async (req, res) => {
     let mode: "subscription" | "payment" = "payment";
 
     if (body.type === "subscription") {
-      // billingPeriod defaults to "monthly" in the schema; pass it through
-      const period: BillingPeriod = body.billingPeriod ?? "monthly";
-      priceId = getPriceIdForSubscription(body.plan!, period);
+      const period = body.billingPeriod ?? "monthly";
+      priceId = getSubscriptionPriceId(body.plan!, period);
       mode = "subscription";
     } else {
-      priceId = getPriceIdForCreditPack(body.creditPack!);
+      priceId = getCreditPackPriceId(body.creditPack!);
       mode = "payment";
     }
 
     // Get or create Stripe customer
     let customerId = user.stripeCustomerId ?? undefined;
     if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: user.email || undefined,
-        metadata: {
-          userId: String(user.id),
-          username: user.username ?? "",
-        },
-      });
+      const customer = await createStripeCustomer(user.id, user.email, user.username);
       customerId = customer.id;
 
+      // Store in both users table and user_billing table
       await db.update(users)
         .set({ stripeCustomerId: customerId })
         .where(eq(users.id, user.id));
+        
+      // Also create/update user_billing record
+      await db.execute(sql`
+        INSERT INTO user_billing (user_id, stripe_customer_id, plan, status)
+        VALUES (${user.id}, ${customerId}, ${user.plan}, 'inactive')
+        ON CONFLICT (user_id) DO UPDATE SET 
+          stripe_customer_id = EXCLUDED.stripe_customer_id
+      `);
     }
 
     // Create checkout session
-    const session = await stripe.checkout.sessions.create({
-      customer: customerId,
-      mode,
-      payment_method_types: ["card"],
-      line_items: [{ price: priceId, quantity: 1 }],
-      success_url: body.successUrl,
-      cancel_url: body.cancelUrl,
-      client_reference_id: String(user.id), // useful in webhook
-      metadata: {
-        userId: String(user.id),
-        type: body.type,
-        ...(body.plan && { plan: body.plan }),
-        ...(body.billingPeriod && { billingPeriod: body.billingPeriod }),
-        ...(body.creditPack && { creditPack: body.creditPack }),
-      },
-    });
+    let session;
+    if (body.type === "subscription") {
+      session = await createSubscriptionCheckout({
+        customerId,
+        priceId,
+        successUrl: body.successUrl,
+        cancelUrl: body.cancelUrl,
+        userId: user.id,
+        plan: body.plan!,
+        period: body.billingPeriod ?? "monthly",
+      });
+    } else {
+      session = await createCreditPackCheckout({
+        customerId,
+        priceId,
+        successUrl: body.successUrl,
+        cancelUrl: body.cancelUrl,
+        userId: user.id,
+        pack: body.creditPack!,
+      });
+    }
 
     res.json({ success: true, url: session.url, sessionId: session.id });
   } catch (error) {
