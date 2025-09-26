@@ -164,6 +164,13 @@ export const useBilling = create<BillingState>((set, get) => ({
 
         if (response.ok) {
           const data = await response.json();
+          
+          // Check if this is a portal redirect for existing subscribers
+          if (data.redirectToPortal) {
+            console.log(data.message || 'Redirecting to manage your existing subscription');
+            // Could also show a toast notification here in the future
+          }
+          
           return data.url;
         } else {
           const errorData = await response.json().catch(() => ({}));

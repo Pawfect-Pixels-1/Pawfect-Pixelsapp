@@ -130,6 +130,35 @@ router.post("/checkout", requireAuth, async (req, res) => {
     // Create checkout session
     let session;
     if (body.type === "subscription") {
+      // Check if user already has an active subscription - if so, redirect to customer portal
+      const [existingBilling] = await db.select()
+        .from(userBilling)
+        .where(eq(userBilling.userId, user.id));
+      
+      if (existingBilling && 
+          existingBilling.status && 
+          ['active', 'past_due', 'unpaid', 'trialing'].includes(existingBilling.status)) {
+        
+        // User already has an active subscription, redirect to customer portal instead
+        const portalConfig: any = {
+          customer: customerId,
+          return_url: process.env.APP_ORIGIN,
+        };
+        
+        if (process.env.STRIPE_PORTAL_CONFIGURATION_ID) {
+          portalConfig.configuration = process.env.STRIPE_PORTAL_CONFIGURATION_ID;
+        }
+        
+        const portalSession = await stripe.billingPortal.sessions.create(portalConfig);
+        return res.json({ 
+          success: true, 
+          redirectToPortal: true,
+          url: portalSession.url, 
+          message: "You already have an active subscription. Redirecting to manage your existing subscription." 
+        });
+      }
+
+      // No active subscription, proceed with checkout
       // Default to 7-day free trial for new subscriptions if not specified
       const trialDays = body.trialDays !== undefined ? body.trialDays : 7;
       const requirePaymentMethod = body.requirePaymentMethod !== undefined ? body.requirePaymentMethod : false;
