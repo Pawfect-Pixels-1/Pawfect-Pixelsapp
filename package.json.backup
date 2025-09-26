@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "license": "MIT",
+  "scripts":
   "scripts": {
     "stripe:check": "tsx scripts/seedStripeCatalog.ts --check",
     "stripe:create": "tsx scripts/seedStripeCatalog.ts --create",
