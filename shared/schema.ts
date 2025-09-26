@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, varchar, jsonb, integer, boolean, date } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, varchar, jsonb, integer, boolean, date, bigint } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations, sql } from "drizzle-orm";
@@ -26,6 +26,46 @@ export const users = pgTable("users", {
   stripeCustomerId: text("stripe_customer_id").unique(),
   stripeSubscriptionId: text("stripe_subscription_id").unique(),
   isPriorityQueue: boolean("is_priority_queue").default(false),
+  
+  // Optimistic concurrency control
+  version: integer("version").notNull().default(0),
+});
+
+/** ───────────────────────────────────────────────────────────
+ *  DB: credit_ledger - Append-only credit transaction log
+ *  ─────────────────────────────────────────────────────────── */
+export const creditLedger = pgTable("credit_ledger", {
+  id: bigint("id", { mode: "number" }).primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  delta: integer("delta").notNull(), // + for grant/refund, - for spend/reserve
+  reason: text("reason").notNull(), // e.g. 'subscription_grant', 'video_generation', 'refund', 'credit_pack'
+  ledgerKey: text("ledger_key"), // optional idempotency key (unique per logical operation)
+  meta: jsonb("meta"), // additional context
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/** ───────────────────────────────────────────────────────────
+ *  DB: credit_holds - Credit reservations for transaction-like behavior
+ *  ─────────────────────────────────────────────────────────── */
+export const creditHolds = pgTable("credit_holds", {
+  id: text("id").primaryKey(), // UUID
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  amount: integer("amount").notNull(),
+  status: varchar("status", { length: 20 }).notNull(), // 'reserved', 'committed', 'canceled'
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/** ───────────────────────────────────────────────────────────
+ *  DB: user_billing - Separate billing information (new comprehensive system)
+ *  ─────────────────────────────────────────────────────────── */
+export const userBilling = pgTable("user_billing", {
+  userId: integer("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  stripeCustomerId: text("stripe_customer_id").unique(),
+  stripeSubscriptionId: text("stripe_subscription_id").unique(),
+  plan: varchar("plan", { length: 20 }).notNull().default("trial"),
+  currentPeriodEnd: timestamp("current_period_end"),
+  status: varchar("status", { length: 20 }).notNull().default("inactive"), // 'active', 'past_due', 'canceled', 'trialing', etc.
 });
 
 /** ───────────────────────────────────────────────────────────
@@ -120,12 +160,28 @@ export const processedWebhookEvents = pgTable("processed_webhook_events", {
 });
 
 // Relations
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ one, many }) => ({
   operations: many(operations),
   transformations: many(transformations),
   files: many(userFiles),
   shareLinks: many(shareLinks),
   shareEvents: many(shareEvents),
+  // New credit system relations
+  creditLedger: many(creditLedger),
+  creditHolds: many(creditHolds),
+  billing: one(userBilling, { fields: [users.id], references: [userBilling.userId] }),
+}));
+
+export const creditLedgerRelations = relations(creditLedger, ({ one }) => ({
+  user: one(users, { fields: [creditLedger.userId], references: [users.id] }),
+}));
+
+export const creditHoldsRelations = relations(creditHolds, ({ one }) => ({
+  user: one(users, { fields: [creditHolds.userId], references: [users.id] }),
+}));
+
+export const userBillingRelations = relations(userBilling, ({ one }) => ({
+  user: one(users, { fields: [userBilling.userId], references: [users.id] }),
 }));
 
 export const operationsRelations = relations(operations, ({ one }) => ({
@@ -172,6 +228,11 @@ export const insertUserFileSchema = createInsertSchema(userFiles);
 export const insertShareLinkSchema = createInsertSchema(shareLinks);
 export const insertShareEventSchema = createInsertSchema(shareEvents);
 
+// New credit system schemas
+export const insertCreditLedgerSchema = createInsertSchema(creditLedger);
+export const insertCreditHoldSchema = createInsertSchema(creditHolds);
+export const insertUserBillingSchema = createInsertSchema(userBilling);
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type Transformation = typeof transformations.$inferSelect;
@@ -182,6 +243,14 @@ export type ShareLink = typeof shareLinks.$inferSelect;
 export type InsertShareLink = z.infer<typeof insertShareLinkSchema>;
 export type ShareEvent = typeof shareEvents.$inferSelect;
 export type InsertShareEvent = z.infer<typeof insertShareEventSchema>;
+
+// New credit system types
+export type CreditLedger = typeof creditLedger.$inferSelect;
+export type InsertCreditLedger = z.infer<typeof insertCreditLedgerSchema>;
+export type CreditHold = typeof creditHolds.$inferSelect;
+export type InsertCreditHold = z.infer<typeof insertCreditHoldSchema>;
+export type UserBilling = typeof userBilling.$inferSelect;
+export type InsertUserBilling = z.infer<typeof insertUserBillingSchema>;
 
 /** ───────────────────────────────────────────────────────────
  *  Replicate Model: face-to-many-kontext — shared enums/schemas
