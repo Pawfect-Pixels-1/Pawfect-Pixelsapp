@@ -64,7 +64,7 @@ export function PricingCard({ plan, currentPlan, isPopular, onSelect, isLoading 
         <div className="space-y-2">
           <div className="text-sm font-semibold text-black">What's included:</div>
           <ul className="space-y-2">
-            {plan.features.map((feature) => (
+            {plan.features?.map((feature) => (
               <li key={`${plan.name}-${feature}`} className="flex items-start gap-2">
                 <Check className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
                 <span className="text-sm text-gray-700">{feature}</span>

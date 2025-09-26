@@ -12,6 +12,8 @@ import { useTransformation } from "./lib/stores/useTransformation";
 import { useAuth } from "./lib/stores/useAuth";
 import { useBilling } from "./lib/stores/useBilling";
 import { Card } from "./components/ui/card";
+import { TutorialOverlay } from "./components/TutorialOverlay";
+import { OnboardingFlow } from "./components/OnboardingFlow";
 
 const queryClient = new QueryClient();
 
@@ -112,25 +114,29 @@ function AppContent() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Upload Zone */}
           <div className="lg:col-span-1">
-            <Card className="h-full shadow-[8px_8px_0px_0px_#c6c2e6] border-2 border-black">
+            <Card className="h-full shadow-[8px_8px_0px_0px_#c6c2e6] border-2 border-black" data-tutorial="upload-area">
               <UploadZone />
             </Card>
           </div>
 
           {/* Transformation Controls */}
           <div className="lg:col-span-1">
-            <Card className="h-full shadow-[8px_8px_0px_0px_#6c8b3a] border-2 border-black">
+            <Card className="h-full shadow-[8px_8px_0px_0px_#6c8b3a] border-2 border-black" data-tutorial="transformation-styles">
               <TransformationControls />
             </Card>
           </div>
 
           {/* Preview Grid */}
           <div className="lg:col-span-1">
-            <Card className="h-full shadow-[8px_8px_0px_0px_#F59E0B] border-2 border-black">
+            <Card className="h-full shadow-[8px_8px_0px_0px_#F59E0B] border-2 border-black" data-tutorial="results-area">
               <PreviewGrid />
             </Card>
           </div>
         </div>
+
+        {/* Tutorial Components */}
+        <TutorialOverlay />
+        <OnboardingFlow />
 
         {/* Processing Status */}
         {isProcessing && (

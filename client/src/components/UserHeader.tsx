@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { LogIn, LogOut, User, History, CreditCard } from 'lucide-react';
+import { LogIn, LogOut, User, History, CreditCard, GraduationCap } from 'lucide-react';
 import { useAuth } from '@/lib/stores/useAuth';
 import { AuthDialog } from './AuthDialog';
+import { TutorialQuickAccess } from './OnboardingFlow';
 
 interface UserHeaderProps {
   onShowPricing?: () => void;
@@ -54,7 +55,7 @@ export function UserHeader({ onShowPricing }: UserHeaderProps) {
                   <span className="font-medium">{user.username}</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="w-48" data-tutorial="user-menu">
                 <DropdownMenuItem className="flex items-center gap-2">
                   <User className="h-4 w-4" />
                   Profile
@@ -66,10 +67,13 @@ export function UserHeader({ onShowPricing }: UserHeaderProps) {
                 <DropdownMenuItem 
                   onClick={onShowPricing}
                   className="flex items-center gap-2"
+                  data-tutorial="upgrade-button"
                 >
                   <CreditCard className="h-4 w-4" />
                   Billing & Credits
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <TutorialQuickAccess />
                 <DropdownMenuSeparator />
                 <DropdownMenuItem 
                   onClick={handleLogout}
