@@ -284,7 +284,7 @@ router.post("/webhook",
             plan,
             stripeSubscriptionId: sub.id,
             status: sub.status as string,
-            currentPeriodEnd: sub.current_period_end ? new Date((sub.current_period_end as number) * 1000) : null,
+            currentPeriodEnd: (sub as any).current_period_end ? new Date((sub as any).current_period_end * 1000) : null,
           };
 
           // Status-specific logic
@@ -340,7 +340,7 @@ router.post("/webhook",
             // Keep existing plan and benefits during grace period
           }, {
             status: subscription.status, // Will be 'past_due'
-            currentPeriodEnd: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
+            currentPeriodEnd: (subscription as any).current_period_end ? new Date((subscription as any).current_period_end * 1000) : null,
           });
           
           console.log(`⚠️ User ${userId} subscription past due - payment failed`);
