@@ -36,10 +36,10 @@ export function PricingPage({ onBack }: PricingPageProps) {
   const handlePlanSelect = async (planName: string) => {
     if (planName === 'trial') return; // Can't "upgrade" to trial
     
-    // Default to 14-day free trial without requiring payment method upfront
+    // Default to 7-day free trial without requiring payment method upfront
     // This reduces signup friction and improves conversion rates
     const checkoutUrl = await createCheckoutSession('subscription', planName, {
-      trialDays: 14,
+      trialDays: 7,
       requirePaymentMethod: false, // No payment method required during trial signup
     });
     
@@ -197,7 +197,7 @@ export function PricingPage({ onBack }: PricingPageProps) {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {creditPacks.map((pack) => (
+                    {creditPacks && Array.isArray(creditPacks) && creditPacks.map((pack) => (
                       <CreditPackCard
                         key={pack.name}
                         pack={pack}

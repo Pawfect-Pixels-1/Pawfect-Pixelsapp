@@ -107,9 +107,17 @@ export const useBilling = create<BillingState>((set, get) => ({
         
         if (response.ok) {
           const data = await response.json();
+          
+          // Convert creditPacks object to array for rendering
+          const creditPacksArray = data.creditPacks ? Object.entries(data.creditPacks).map(([name, pack]: [string, any]) => ({
+            name,
+            displayName: name.charAt(0).toUpperCase() + name.slice(1),
+            ...pack
+          })) : [];
+          
           set({ 
             plans: data.plans,
-            creditPacks: data.creditPacks 
+            creditPacks: creditPacksArray 
           });
         } else {
           console.error('Failed to fetch plans');

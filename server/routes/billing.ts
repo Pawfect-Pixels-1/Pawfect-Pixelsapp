@@ -130,8 +130,8 @@ router.post("/checkout", requireAuth, async (req, res) => {
     // Create checkout session
     let session;
     if (body.type === "subscription") {
-      // Default to 14-day free trial for new subscriptions if not specified
-      const trialDays = body.trialDays !== undefined ? body.trialDays : 14;
+      // Default to 7-day free trial for new subscriptions if not specified
+      const trialDays = body.trialDays !== undefined ? body.trialDays : 7;
       const requirePaymentMethod = body.requirePaymentMethod !== undefined ? body.requirePaymentMethod : false;
 
       session = await createSubscriptionCheckout({

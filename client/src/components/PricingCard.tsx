@@ -36,7 +36,7 @@ export function PricingCard({ plan, currentPlan, isPopular, onSelect, isLoading 
         
         {!isTrialPlan && (
           <Badge className="w-fit mx-auto mb-2 bg-green-100 text-green-800 border border-green-300">
-            14-Day Free Trial
+            7-Day Free Trial
           </Badge>
         )}
         
