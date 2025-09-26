@@ -36,7 +36,13 @@ export function PricingPage({ onBack }: PricingPageProps) {
   const handlePlanSelect = async (planName: string) => {
     if (planName === 'trial') return; // Can't "upgrade" to trial
     
-    const checkoutUrl = await createCheckoutSession('subscription', planName);
+    // Default to 14-day free trial without requiring payment method upfront
+    // This reduces signup friction and improves conversion rates
+    const checkoutUrl = await createCheckoutSession('subscription', planName, {
+      trialDays: 14,
+      requirePaymentMethod: false, // No payment method required during trial signup
+    });
+    
     if (checkoutUrl) {
       window.location.href = checkoutUrl;
     }

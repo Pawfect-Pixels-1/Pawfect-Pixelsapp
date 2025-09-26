@@ -58,7 +58,10 @@ interface BillingState {
   // Actions
   fetchUsage: () => Promise<void>;
   fetchPlans: () => Promise<void>;
-  createCheckoutSession: (type: 'subscription' | 'credits', planOrPack: string) => Promise<string | null>;
+  createCheckoutSession: (type: 'subscription' | 'credits', planOrPack: string, options?: {
+    trialDays?: number;
+    requirePaymentMethod?: boolean;
+  }) => Promise<string | null>;
   openCustomerPortal: () => Promise<boolean>;
   refreshUsage: () => Promise<void>;
   deductCredits: (amount: number) => void;
@@ -119,21 +122,36 @@ export const useBilling = create<BillingState>((set, get) => ({
     },
 
     // Create checkout session for subscription or credit purchase
-    createCheckoutSession: async (type: 'subscription' | 'credits', planOrPack: string) => {
+    createCheckoutSession: async (type: 'subscription' | 'credits', planOrPack: string, options?: {
+      trialDays?: number;
+      requirePaymentMethod?: boolean;
+    }) => {
       set({ isCreatingCheckout: true });
       try {
+        const body: any = { 
+          type, 
+          [type === 'subscription' ? 'plan' : 'creditPack']: planOrPack,
+          successUrl: `${window.location.origin}/?success=1`,
+          cancelUrl: `${window.location.origin}/?canceled=1`
+        };
+
+        // Add trial options for subscriptions
+        if (type === 'subscription' && options) {
+          if (options.trialDays !== undefined) {
+            body.trialDays = options.trialDays;
+          }
+          if (options.requirePaymentMethod !== undefined) {
+            body.requirePaymentMethod = options.requirePaymentMethod;
+          }
+        }
+
         const response = await fetch('/api/billing/checkout', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           credentials: 'include',
-          body: JSON.stringify({ 
-            type, 
-            [type === 'subscription' ? 'plan' : 'creditPack']: planOrPack,
-            successUrl: `${window.location.origin}/?success=1`,
-            cancelUrl: `${window.location.origin}/?canceled=1`
-          }),
+          body: JSON.stringify(body),
         });
 
         if (response.ok) {

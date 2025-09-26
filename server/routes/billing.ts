@@ -42,6 +42,9 @@ const CheckoutRequestSchema = z
     creditPack: z.enum(["small", "medium", "large"]).optional(),
     successUrl: z.string().url(),
     cancelUrl: z.string().url(),
+    // Free trial configuration
+    trialDays: z.number().min(0).max(365).optional(),
+    requirePaymentMethod: z.boolean().optional().default(true),
   })
   .refine(
     (data) => {
@@ -127,6 +130,10 @@ router.post("/checkout", requireAuth, async (req, res) => {
     // Create checkout session
     let session;
     if (body.type === "subscription") {
+      // Default to 14-day free trial for new subscriptions if not specified
+      const trialDays = body.trialDays !== undefined ? body.trialDays : 14;
+      const requirePaymentMethod = body.requirePaymentMethod !== undefined ? body.requirePaymentMethod : false;
+
       session = await createSubscriptionCheckout({
         customerId,
         priceId,
@@ -135,6 +142,8 @@ router.post("/checkout", requireAuth, async (req, res) => {
         userId: user.id,
         plan: body.plan!,
         period: body.billingPeriod ?? "monthly",
+        trialPeriodDays: trialDays,
+        requirePaymentMethod,
       });
     } else {
       session = await createCreditPackCheckout({

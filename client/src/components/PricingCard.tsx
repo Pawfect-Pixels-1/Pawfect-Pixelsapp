@@ -33,11 +33,23 @@ export function PricingCard({ plan, currentPlan, isPopular, onSelect, isLoading 
         <CardDescription className="text-lg font-semibold">
           {plan.description}
         </CardDescription>
+        
+        {!isTrialPlan && (
+          <Badge className="w-fit mx-auto mb-2 bg-green-100 text-green-800 border border-green-300">
+            14-Day Free Trial
+          </Badge>
+        )}
+        
         <div className="mt-4">
           {!isTrialPlan ? (
-            <div className="text-4xl font-black text-black">
-              ${plan.price}
-              <span className="text-lg font-normal text-gray-600">/month</span>
+            <div>
+              <div className="text-4xl font-black text-black">
+                ${plan.price}
+                <span className="text-lg font-normal text-gray-600">/month</span>
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                No payment required to start trial
+              </div>
             </div>
           ) : (
             <div className="text-4xl font-black text-[#c6c2e6]">

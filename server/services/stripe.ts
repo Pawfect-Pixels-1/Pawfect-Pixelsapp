@@ -143,6 +143,8 @@ export async function createSubscriptionCheckout({
   userId,
   plan,
   period,
+  trialPeriodDays,
+  requirePaymentMethod = true,
 }: {
   customerId: string;
   priceId: string;
@@ -151,8 +153,10 @@ export async function createSubscriptionCheckout({
   userId: number;
   plan: string;
   period: string;
+  trialPeriodDays?: number;
+  requirePaymentMethod?: boolean;
 }): Promise<Stripe.Checkout.Session> {
-  return await stripe.checkout.sessions.create({
+  const sessionParams: Stripe.Checkout.SessionCreateParams = {
     customer: customerId,
     mode: 'subscription',
     payment_method_types: ['card'],
@@ -166,7 +170,26 @@ export async function createSubscriptionCheckout({
       plan,
       period,
     },
-  });
+  };
+
+  // Configure trial and payment method collection
+  if (trialPeriodDays && trialPeriodDays > 0) {
+    sessionParams.subscription_data = {
+      trial_period_days: trialPeriodDays,
+    };
+
+    // If we don't require payment method upfront, configure accordingly
+    if (!requirePaymentMethod) {
+      sessionParams.payment_method_collection = 'if_required';
+      sessionParams.subscription_data.trial_settings = {
+        end_behavior: {
+          missing_payment_method: 'pause', // Pause subscription if no payment method at end of trial
+        },
+      };
+    }
+  }
+
+  return await stripe.checkout.sessions.create(sessionParams);
 }
 
 /**
