@@ -11,7 +11,7 @@ const router = Router();
 
 // Initialize Stripe with explicit API version (recommended)
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20",
+  apiVersion: "2025-08-27.basil",
 });
 
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
@@ -157,7 +157,7 @@ router.post("/webhook",
         /** Subscription renewals (best signal to reset monthly included credits) */
         case "invoice.payment_succeeded": {
           const invoice = event.data.object as Stripe.Invoice;
-          const subscriptionId = (invoice.subscription as string) || null;
+          const subscriptionId = (invoice as any).subscription as string || null;
           const customerId = (invoice.customer as string) || null;
           if (!subscriptionId || !customerId) break;
 
