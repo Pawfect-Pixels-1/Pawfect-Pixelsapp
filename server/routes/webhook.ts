@@ -199,7 +199,7 @@ router.post("/webhook",
             userId, 
             included, 
             'subscription_grant', 
-            `${subscription.id}_${sub.current_period_start}`,
+            `${subscription.id}_${invoice.period_start}`,
             { subscriptionId: subscription.id, plan }
           );
 
@@ -215,7 +215,7 @@ router.post("/webhook",
             plan,
             stripeSubscriptionId: subscription.id,
             status: 'active',
-            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+            currentPeriodEnd: new Date(invoice.period_end * 1000),
           });
           
           console.log(`🔄 Reset monthly credits for user ${userId}: ${included}`);
