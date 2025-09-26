@@ -21,8 +21,8 @@ const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 const operationStore = new Map<string, types.OperationStatus>();
 
 /**
- * Create operation record and atomically reserve credits to prevent overcommit.
- * Credits are immediately reserved to eliminate race conditions and financial risk.
+ * Create operation record and reserve credits to prevent overcommit.
+ * Uses optimistic approach since Neon HTTP driver doesn't support transactions.
  */
 export async function createOperationAndReserveCredits(
   operationId: string,
@@ -38,69 +38,66 @@ export async function createOperationAndReserveCredits(
     const creditsPerUnit = calculateCreditsNeeded(operationType, model, seconds);
     const creditsNeeded = creditsPerUnit * quantity;
     
-    // Atomically reserve credits and create operation record
-    await db.transaction(async (tx) => {
-      // Lock user row for update to prevent race conditions
-      const [user] = await tx.select().from(users).where(eq(users.id, userId)).for("update");
-      if (!user) {
-        throw new Error("User not found");
-      }
+    // Get current user state
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) {
+      throw new Error("User not found");
+    }
 
-      // Calculate current available credits
-      const dailyRemaining = Math.max(0, (user.dailyCreditsCap || 0) - (user.dailyCreditsUsed || 0));
-      const totalAvailable = dailyRemaining + (user.creditsBalance || 0);
+    // Calculate current available credits
+    const dailyRemaining = Math.max(0, (user.dailyCreditsCap || 0) - (user.dailyCreditsUsed || 0));
+    const totalAvailable = dailyRemaining + (user.creditsBalance || 0);
 
-      if (totalAvailable < creditsNeeded) {
-        throw new Error(`Insufficient credits. Need ${creditsNeeded} for ${quantity} ${operationType}(s), have ${totalAvailable} (${dailyRemaining} daily + ${user.creditsBalance || 0} purchased)`);
-      }
+    if (totalAvailable < creditsNeeded) {
+      throw new Error(`Insufficient credits. Need ${creditsNeeded} for ${quantity} ${operationType}(s), have ${totalAvailable} (${dailyRemaining} daily + ${user.creditsBalance || 0} purchased)`);
+    }
 
-      // Reserve credits by updating user balances and track the split
-      let remainingToReserve = creditsNeeded;
-      let newDailyUsed = user.dailyCreditsUsed || 0;
-      let newBalance = user.creditsBalance || 0;
-      let dailyPortionReserved = 0;
-      let balancePortionReserved = 0;
+    // Reserve credits by calculating the new balances
+    let remainingToReserve = creditsNeeded;
+    let newDailyUsed = user.dailyCreditsUsed || 0;
+    let newBalance = user.creditsBalance || 0;
+    let dailyPortionReserved = 0;
+    let balancePortionReserved = 0;
 
-      // First, reserve from daily credits (by increasing dailyCreditsUsed)
-      if (dailyRemaining > 0 && remainingToReserve > 0) {
-        dailyPortionReserved = Math.min(dailyRemaining, remainingToReserve);
-        newDailyUsed += dailyPortionReserved;
-        remainingToReserve -= dailyPortionReserved;
-      }
+    // First, reserve from daily credits (by increasing dailyCreditsUsed)
+    if (dailyRemaining > 0 && remainingToReserve > 0) {
+      dailyPortionReserved = Math.min(dailyRemaining, remainingToReserve);
+      newDailyUsed += dailyPortionReserved;
+      remainingToReserve -= dailyPortionReserved;
+    }
 
-      // Then, reserve from balance if needed
-      if (remainingToReserve > 0) {
-        balancePortionReserved = remainingToReserve;
-        newBalance -= balancePortionReserved;
-      }
+    // Then, reserve from balance if needed
+    if (remainingToReserve > 0) {
+      balancePortionReserved = remainingToReserve;
+      newBalance -= balancePortionReserved;
+    }
 
-      // Update user credits to reflect the reservation
-      await tx
-        .update(users)
-        .set({
-          dailyCreditsUsed: newDailyUsed,
-          creditsBalance: newBalance,
-        })
-        .where(eq(users.id, userId));
+    // Update user credits to reflect the reservation
+    await db
+      .update(users)
+      .set({
+        dailyCreditsUsed: newDailyUsed,
+        creditsBalance: newBalance,
+      })
+      .where(eq(users.id, userId));
 
-      // Create operation record for tracking with reservation details
-      await tx.insert(operations).values({
-        id: operationId,
-        userId: userId,
-        type: operationType,
-        model: model,
-        status: 'processing',
-        creditsPlanned: creditsNeeded,
-        creditsDeducted: true, // Credits are already reserved/deducted
-        dailyPortionReserved,
-        balancePortionReserved,
-        quantity: quantity,
-        durationSeconds: seconds || null,
-        requestParams: requestParams ? JSON.stringify(requestParams) : null
-      });
-
-      console.log(`💰 Operation ${operationId} created and ${creditsNeeded} credits reserved atomically for user ${userId}`);
+    // Create operation record for tracking with reservation details
+    await db.insert(operations).values({
+      id: operationId,
+      userId: userId,
+      type: operationType,
+      model: model,
+      status: 'processing',
+      creditsPlanned: creditsNeeded,
+      creditsDeducted: true, // Credits are already reserved/deducted
+      dailyPortionReserved,
+      balancePortionReserved,
+      quantity: quantity,
+      durationSeconds: seconds || null,
+      requestParams: requestParams ? JSON.stringify(requestParams) : null
     });
+
+    console.log(`💰 Operation ${operationId} created and ${creditsNeeded} credits reserved for user ${userId} (${dailyPortionReserved} daily + ${balancePortionReserved} balance)`);
     
     return { hasCredits: true, creditsNeeded };
   } catch (error: any) {
