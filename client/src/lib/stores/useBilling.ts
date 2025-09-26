@@ -135,6 +135,7 @@ export const useBilling = create<BillingState>((set, get) => ({
     createCheckoutSession: async (type: 'subscription' | 'credits', planOrPack: string, options?: {
       trialDays?: number;
       requirePaymentMethod?: boolean;
+      billingCycleAnchorDay?: number; // Day of month (1-31) for fixed billing dates
     }) => {
       set({ isCreatingCheckout: true });
       try {
@@ -145,13 +146,16 @@ export const useBilling = create<BillingState>((set, get) => ({
           cancelUrl: `${window.location.origin}/?canceled=1`
         };
 
-        // Add trial options for subscriptions
+        // Add trial and billing anchor options for subscriptions
         if (type === 'subscription' && options) {
           if (options.trialDays !== undefined) {
             body.trialDays = options.trialDays;
           }
           if (options.requirePaymentMethod !== undefined) {
             body.requirePaymentMethod = options.requirePaymentMethod;
+          }
+          if (options.billingCycleAnchorDay !== undefined) {
+            body.billingCycleAnchorDay = options.billingCycleAnchorDay;
           }
         }
 

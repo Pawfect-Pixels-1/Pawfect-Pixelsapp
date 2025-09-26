@@ -2,8 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Info, Sparkles } from 'lucide-react';
+import { ArrowLeft, Info, Sparkles, Calendar } from 'lucide-react';
 import { PricingCard } from './PricingCard';
 import { CreditPackCard } from './CreditPackCard';
 import { UsageWidget } from './UsageWidget';
@@ -27,6 +30,8 @@ export function PricingPage({ onBack }: PricingPageProps) {
   } = useBilling();
 
   const [activeTab, setActiveTab] = useState<'plans' | 'credits'>('plans');
+  const [billingCycleAnchorDay, setBillingCycleAnchorDay] = useState<number | null>(null);
+  const [useBillingAnchor, setUseBillingAnchor] = useState(false);
 
   useEffect(() => {
     fetchUsage();
@@ -36,12 +41,24 @@ export function PricingPage({ onBack }: PricingPageProps) {
   const handlePlanSelect = async (planName: string) => {
     if (planName === 'trial') return; // Can't "upgrade" to trial
     
-    // Default to 7-day free trial without requiring payment method upfront
-    // This reduces signup friction and improves conversion rates
-    const checkoutUrl = await createCheckoutSession('subscription', planName, {
-      trialDays: 7,
-      requirePaymentMethod: false, // No payment method required during trial signup
-    });
+    const options: any = {};
+    
+    // Handle billing cycle anchor vs trial conflict
+    if (useBillingAnchor) {
+      if (!billingCycleAnchorDay) {
+        alert('Please select a billing day of the month first.');
+        return;
+      }
+      // Using billing cycle anchor - cannot use trials
+      options.billingCycleAnchorDay = billingCycleAnchorDay;
+      options.requirePaymentMethod = true; // Required when using billing anchor
+    } else {
+      // Default to 7-day free trial without requiring payment method upfront
+      options.trialDays = 7;
+      options.requirePaymentMethod = false;
+    }
+    
+    const checkoutUrl = await createCheckoutSession('subscription', planName, options);
     
     if (checkoutUrl) {
       window.location.href = checkoutUrl;
@@ -136,6 +153,66 @@ export function PricingPage({ onBack }: PricingPageProps) {
               </TabsList>
 
               <TabsContent value="plans" className="space-y-6">
+                {/* Billing Cycle Anchor Options */}
+                <Card className="border-2 border-green-300 bg-green-50 shadow-[4px_4px_0px_0px_#10b981]">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-bold flex items-center gap-2">
+                      <Calendar className="w-4 h-4" />
+                      Billing Options
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-start gap-3">
+                      <Checkbox
+                        id="billing-anchor"
+                        checked={useBillingAnchor}
+                        onCheckedChange={(checked) => {
+                          setUseBillingAnchor(!!checked);
+                          if (!checked) setBillingCycleAnchorDay(null);
+                        }}
+                      />
+                      <div className="flex-1">
+                        <Label htmlFor="billing-anchor" className="text-sm font-semibold text-green-900">
+                          Set Fixed Monthly Billing Date
+                        </Label>
+                        <div className="text-xs text-green-700 mt-1">
+                          Choose a specific day each month for billing (e.g., 1st of every month) for easier accounting.
+                          {useBillingAnchor && <span className="text-yellow-700 font-medium"> Note: Free trial not available with fixed billing dates.</span>}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {useBillingAnchor && (
+                      <div className="ml-6">
+                        <Label htmlFor="anchor-day" className="text-xs font-semibold text-green-900">
+                          Billing Day of Month
+                        </Label>
+                        <Select 
+                          value={billingCycleAnchorDay?.toString() || ""} 
+                          onValueChange={(value) => setBillingCycleAnchorDay(parseInt(value))}
+                        >
+                          <SelectTrigger className="w-full mt-1">
+                            <SelectValue placeholder="Select billing day..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 28 }, (_, i) => i + 1).map(day => (
+                              <SelectItem key={day} value={day.toString()}>
+                                {day === 1 ? '1st' : day === 2 ? '2nd' : day === 3 ? '3rd' : `${day}th`} of every month
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="text-xs text-green-600 mt-1">
+                          You'll be charged on the {billingCycleAnchorDay ? 
+                            (billingCycleAnchorDay === 1 ? '1st' : billingCycleAnchorDay === 2 ? '2nd' : billingCycleAnchorDay === 3 ? '3rd' : `${billingCycleAnchorDay}th`) + ' of each month' :
+                            'selected day each month'
+                          }. You may receive a prorated charge for the partial first period.
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
                 {isTrialUser && (
                   <Card className="border-2 border-blue-300 bg-blue-50 shadow-[4px_4px_0px_0px_#3b82f6]">
                     <CardContent className="p-4">

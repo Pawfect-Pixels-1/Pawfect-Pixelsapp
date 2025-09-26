@@ -145,6 +145,7 @@ export async function createSubscriptionCheckout({
   period,
   trialPeriodDays,
   requirePaymentMethod = true,
+  billingCycleAnchorDay,
 }: {
   customerId: string;
   priceId: string;
@@ -155,6 +156,7 @@ export async function createSubscriptionCheckout({
   period: string;
   trialPeriodDays?: number;
   requirePaymentMethod?: boolean;
+  billingCycleAnchorDay?: number; // Day of month (1-31) to anchor billing cycle
 }): Promise<Stripe.Checkout.Session> {
   const sessionParams: Stripe.Checkout.SessionCreateParams = {
     customer: customerId,
@@ -172,11 +174,32 @@ export async function createSubscriptionCheckout({
     },
   };
 
-  // Configure trial and payment method collection
-  if (trialPeriodDays && trialPeriodDays > 0) {
-    sessionParams.subscription_data = {
-      trial_period_days: trialPeriodDays,
-    };
+  // Configure billing cycle anchor if specified
+  if (billingCycleAnchorDay && billingCycleAnchorDay >= 1 && billingCycleAnchorDay <= 31) {
+    // Calculate the billing cycle anchor timestamp
+    const now = new Date();
+    const anchorDate = new Date(now.getFullYear(), now.getMonth(), billingCycleAnchorDay);
+    
+    // If the anchor day has already passed this month, set it for next month
+    if (anchorDate <= now) {
+      anchorDate.setMonth(anchorDate.getMonth() + 1);
+    }
+    
+    sessionParams.subscription_data = sessionParams.subscription_data || {};
+    sessionParams.subscription_data.billing_cycle_anchor = Math.floor(anchorDate.getTime() / 1000);
+    
+    // Default to creating prorations for billing cycle anchor
+    // This means customers pay a prorated amount for the partial period
+    sessionParams.subscription_data.proration_behavior = 'create_prorations';
+    
+    console.log(`Setting billing cycle anchor to ${anchorDate.toISOString()} (day ${billingCycleAnchorDay})`);
+  }
+
+  // Configure trial and payment method collection 
+  // NOTE: Stripe doesn't allow trials with billing cycle anchors in Checkout Sessions
+  if (trialPeriodDays && trialPeriodDays > 0 && !billingCycleAnchorDay) {
+    sessionParams.subscription_data = sessionParams.subscription_data || {};
+    sessionParams.subscription_data.trial_period_days = trialPeriodDays;
 
     // If we don't require payment method upfront, configure accordingly
     if (!requirePaymentMethod) {
@@ -187,6 +210,9 @@ export async function createSubscriptionCheckout({
         },
       };
     }
+  } else if (trialPeriodDays && trialPeriodDays > 0 && billingCycleAnchorDay) {
+    // Cannot use trials with billing cycle anchors in Checkout Sessions
+    console.warn(`Cannot use trial (${trialPeriodDays} days) with billing cycle anchor (day ${billingCycleAnchorDay}) in Checkout Sessions. Skipping trial.`);
   }
 
   return await stripe.checkout.sessions.create(sessionParams);

@@ -45,6 +45,8 @@ const CheckoutRequestSchema = z
     // Free trial configuration
     trialDays: z.number().min(0).max(365).optional(),
     requirePaymentMethod: z.boolean().optional().default(true),
+    // Billing cycle anchor (day of month 1-31 for fixed billing dates)
+    billingCycleAnchorDay: z.number().int().min(1).max(31).optional(),
   })
   .refine(
     (data) => {
@@ -173,6 +175,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
         period: body.billingPeriod ?? "monthly",
         trialPeriodDays: trialDays,
         requirePaymentMethod,
+        billingCycleAnchorDay: body.billingCycleAnchorDay,
       });
     } else {
       session = await createCreditPackCheckout({
