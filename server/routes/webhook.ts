@@ -3,42 +3,41 @@ import { Router } from "express";
 import Stripe from "stripe";
 import bodyParser from "body-parser";
 import { db } from "../storage";
-import { users, processedWebhookEvents } from "../../shared/schema";
+import { users, processedWebhookEvents, userBilling } from "../../shared/schema";
 import { eq, sql } from "drizzle-orm";
-import { billingConfig, loadStripeConfig, PlanType } from "../../shared/billing";
+import { creditDelta } from "../services/credits";
+import { 
+  stripe, 
+  mapPriceIdToPlan, 
+  getCreditPackAmount 
+} from "../services/stripe";
+import { 
+  PLAN_CREDITS, 
+  normalizePlan, 
+  type Plan 
+} from "../../shared/creditSystem";
 
 const router = Router();
-
-// Initialize Stripe with explicit API version (recommended)
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-08-27.basil",
-});
-
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
-const priceIds = loadStripeConfig().priceIds;
 
-/** Map Stripe price.id → plan/pack */
-function mapPriceId(
-  priceId: string
-):
-  | { kind: "subscription"; plan: Exclude<PlanType, "trial"> }
-  | { kind: "credits"; pack: "small" | "medium" | "large"; credits: number }
-  | null {
-  // Subs (monthly + yearly)
-  if (priceId === priceIds.basic.monthly || priceId === priceIds.basic.yearly) {
-    return { kind: "subscription", plan: "basic" };
+/** Enhanced mapping using new Stripe service */
+function mapStripePrice(priceId: string) {
+  const mapped = mapPriceIdToPlan(priceId);
+  if (!mapped) return null;
+  
+  if (mapped.type === 'subscription') {
+    return {
+      kind: 'subscription' as const,
+      plan: mapped.plan as Exclude<Plan, 'trial'>,
+      period: mapped.period,
+    };
+  } else {
+    return {
+      kind: 'credits' as const,
+      pack: mapped.pack,
+      credits: getCreditPackAmount(mapped.pack!),
+    };
   }
-  if (priceId === priceIds.advanced.monthly || priceId === priceIds.advanced.yearly) {
-    return { kind: "subscription", plan: "advanced" };
-  }
-  if (priceId === priceIds.premium.monthly || priceId === priceIds.premium.yearly) {
-    return { kind: "subscription", plan: "premium" };
-  }
-  // Packs
-  if (priceId === priceIds.creditPacks.small) return { kind: "credits", pack: "small", credits: 100 };
-  if (priceId === priceIds.creditPacks.medium) return { kind: "credits", pack: "medium", credits: 500 };
-  if (priceId === priceIds.creditPacks.large) return { kind: "credits", pack: "large", credits: 2000 };
-  return null;
 }
 
 /** Resolve our user id from Checkout Session */
@@ -50,9 +49,24 @@ function resolveUserId(session: Stripe.Checkout.Session): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** Update helper */
-async function updateUser(userId: number, patch: Partial<typeof users.$inferInsert>) {
-  await db.update(users).set(patch).where(eq(users.id, userId));
+/** Update user and billing records */
+async function updateUserBilling(
+  userId: number, 
+  userPatch: Partial<typeof users.$inferInsert>,
+  billingPatch?: Partial<typeof userBilling.$inferInsert>
+) {
+  // Update user record
+  await db.update(users).set(userPatch).where(eq(users.id, userId));
+  
+  // Update or create billing record if provided
+  if (billingPatch) {
+    await db.execute(sql`
+      INSERT INTO user_billing (user_id, ${sql.raw(Object.keys(billingPatch).join(', '))})
+      VALUES (${userId}, ${sql.raw(Object.values(billingPatch).map(() => '?').join(', '))})
+      ON CONFLICT (user_id) DO UPDATE SET
+        ${sql.raw(Object.keys(billingPatch).map(key => `${key} = EXCLUDED.${key}`).join(', '))}
+    `);
+  }
 }
 
 /**
@@ -113,7 +127,7 @@ router.post("/webhook",
           const priceId = price?.id;
           if (!priceId) break;
 
-          const mapped = mapPriceId(priceId);
+          const mapped = mapStripePrice(priceId);
           if (!mapped) {
             console.warn("🤷 Unknown price id in checkout:", priceId);
             break;
@@ -132,23 +146,30 @@ router.post("/webhook",
           }
 
           if (mapped.kind === "credits") {
-            // Atomic increment (use raw SQL if your column is snake_case)
-            await db.execute(sql`
-              UPDATE users
-              SET credits_balance = COALESCE(credits_balance, 0) + ${mapped.credits}
-              WHERE id = ${userId}
-            `);
-            console.log(`💰 Added ${mapped.credits} credits to user ${userId}`);
+            // Use new credit system for atomic credit addition
+            await creditDelta(
+              userId, 
+              mapped.credits, 
+              'credit_pack', 
+              `checkout_${session.id}`,
+              { pack: mapped.pack, sessionId: session.id }
+            );
+            console.log(`💰 Added ${mapped.credits} credits to user ${userId} via credit pack`);
           } else if (mapped.kind === "subscription") {
-            const included = billingConfig.plans[mapped.plan].includedCredits;
-            const isPriority = mapped.plan === "premium";
-            await updateUser(userId, {
-              plan: mapped.plan,
+            const plan = normalizePlan(mapped.plan);
+            const included = PLAN_CREDITS[plan];
+            const isPriority = plan === "premium";
+            
+            await updateUserBilling(userId, {
+              plan,
               includedCreditsThisCycle: included,
               isPriorityQueue: isPriority,
-              // store subscription id on subsequent sub events
+            }, {
+              plan,
+              status: 'active',
             });
-            console.log(`✅ Set user ${userId} plan=${mapped.plan}, included=${included}`);
+            
+            console.log(`✅ Set user ${userId} plan=${plan}, included=${included}`);
           }
 
           break;
@@ -165,25 +186,41 @@ router.post("/webhook",
             expand: ["items.data.price"],
           });
           const price = subscription.items.data[0]?.price;
-          const mapped = price?.id ? mapPriceId(price.id) : null;
+          const mapped = price?.id ? mapStripePrice(price.id) : null;
 
           const customer = await stripe.customers.retrieve(customerId);
           const uidRaw = (customer as any)?.metadata?.userId;
           const userId = Number(uidRaw);
           if (!Number.isFinite(userId) || !mapped || mapped.kind !== "subscription") break;
 
-          const included = billingConfig.plans[mapped.plan].includedCredits;
-          const isPriority = mapped.plan === "premium";
+          const plan = normalizePlan(mapped.plan);
+          const included = PLAN_CREDITS[plan];
+          const isPriority = plan === "premium";
 
-          await updateUser(userId, {
-            plan: mapped.plan,
+          // Grant monthly credits using new system
+          await creditDelta(
+            userId, 
+            included, 
+            'subscription_grant', 
+            `${subscription.id}_${sub.current_period_start}`,
+            { subscriptionId: subscription.id, plan }
+          );
+
+          await updateUserBilling(userId, {
+            plan,
             stripeSubscriptionId: subscription.id,
             includedCreditsThisCycle: included,
             isPriorityQueue: isPriority,
             dailyCreditsCap: null,
             dailyCreditsUsed: null,
             lastDailyRefreshAt: null,
+          }, {
+            plan,
+            stripeSubscriptionId: subscription.id,
+            status: 'active',
+            currentPeriodEnd: new Date(sub.current_period_end * 1000),
           });
+          
           console.log(`🔄 Reset monthly credits for user ${userId}: ${included}`);
           break;
         }
@@ -198,16 +235,23 @@ router.post("/webhook",
           if (!Number.isFinite(userId)) break;
 
           const price = sub.items.data[0]?.price;
-          const mapped = price?.id ? mapPriceId(price.id) : null;
+          const mapped = price?.id ? mapStripePrice(price.id) : null;
           if (!mapped || mapped.kind !== "subscription") break;
 
-          const isPriority = mapped.plan === "premium";
-          await updateUser(userId, {
-            plan: mapped.plan,
+          const plan = normalizePlan(mapped.plan);
+          const isPriority = plan === "premium";
+          
+          await updateUserBilling(userId, {
+            plan,
             stripeSubscriptionId: sub.id,
             isPriorityQueue: isPriority,
+          }, {
+            plan,
+            stripeSubscriptionId: sub.id,
+            status: sub.status as string,
           });
-          console.log(`📋 Sub ${sub.id} → user ${userId} plan=${mapped.plan}`);
+          
+          console.log(`📋 Sub ${sub.id} → user ${userId} plan=${plan}`);
           break;
         }
 
@@ -219,14 +263,18 @@ router.post("/webhook",
           const userId = Number((customer as any)?.metadata?.userId);
           if (!Number.isFinite(userId)) break;
 
-          await updateUser(userId, {
+          await updateUserBilling(userId, {
             plan: "trial",
             stripeSubscriptionId: null,
             includedCreditsThisCycle: 0,
             isPriorityQueue: false,
-            dailyCreditsCap: billingConfig.trial.dailyCredits,
+            dailyCreditsCap: 10, // trial daily limit
             dailyCreditsUsed: 0,
             lastDailyRefreshAt: null,
+          }, {
+            plan: "trial",
+            stripeSubscriptionId: null,
+            status: 'canceled',
           });
           console.log(`⬇️ User ${userId} reverted to trial`);
           break;

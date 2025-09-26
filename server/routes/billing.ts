@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { requireAuth } from "../auth";
 import { db } from "../storage";
 import { users, userBilling } from "../../shared/schema";
@@ -107,7 +107,7 @@ router.post("/checkout", requireAuth, async (req, res) => {
     // Get or create Stripe customer
     let customerId = user.stripeCustomerId ?? undefined;
     if (!customerId) {
-      const customer = await createStripeCustomer(user.id, user.email, user.username);
+      const customer = await createStripeCustomer(user.id, user.email || undefined, user.username);
       customerId = customer.id;
 
       // Store in both users table and user_billing table
@@ -200,16 +200,20 @@ router.get("/usage/me", requireAuth, async (req, res) => {
   try {
     const user = req.user!;
 
+    // Get current balance using new credit system
+    const { credits, plan } = await getBalance(user.id);
+    const normalizedPlan = normalizePlan(plan) as Plan;
+
     // Trial end calculation
     let trialEndsAt: Date | null = null;
-    if (user.plan === "trial" && user.trialStartedAt) {
+    if (normalizedPlan === "trial" && user.trialStartedAt) {
       trialEndsAt = new Date(user.trialStartedAt);
-      trialEndsAt.setDate(trialEndsAt.getDate() + billingConfig.trial.days);
+      trialEndsAt.setDate(trialEndsAt.getDate() + 7); // 7 day trial
     }
 
     // Daily credits remaining (trial only)
     let dailyCreditsRemaining = 0;
-    if (user.plan === "trial") {
+    if (normalizedPlan === "trial") {
       const now = new Date();
       const lastRefresh = user.lastDailyRefreshAt ? new Date(user.lastDailyRefreshAt) : null;
       const needsRefresh =
@@ -219,48 +223,37 @@ router.get("/usage/me", requireAuth, async (req, res) => {
         lastRefresh.getDate() !== now.getDate();
 
       if (needsRefresh) {
-        const cap = user.dailyCreditsCap ?? billingConfig.trial.dailyCredits;
+        const cap = user.dailyCreditsCap ?? 10; // trial daily limit
         dailyCreditsRemaining = cap;
         await db.update(users)
           .set({
             dailyCreditsUsed: 0,
-            lastDailyRefreshAt: new Date().toISOString().split('T')[0], // Convert Date to YYYY-MM-DD string
+            lastDailyRefreshAt: new Date().toISOString().split('T')[0],
           })
           .where(eq(users.id, user.id));
       } else {
-        const cap = user.dailyCreditsCap ?? billingConfig.trial.dailyCredits;
+        const cap = user.dailyCreditsCap ?? 10;
         const used = user.dailyCreditsUsed ?? 0;
         dailyCreditsRemaining = Math.max(0, cap - used);
       }
     }
 
-    // Allowed features by plan
-    let allowedVideoModels: string[] = [];
-    let videoCaps: { secondsMax: number; fpsMax: number; aspectRatios: string[] } | null = null;
-    let allowedStyles: string[] = ["basic"];
-    let allowedDownloads: string[] = ["HD"];
+    // Allowed features by plan using new credit system
+    const allowedVideoModels = getAvailableVideoModels(normalizedPlan);
+    const videoCaps = normalizedPlan === "advanced" || normalizedPlan === "premium" 
+      ? { secondsMax: 5, fpsMax: 12, aspectRatios: ["16:9", "9:16", "1:1"] }
+      : null;
+    const allowedStyles = ["basic", "advanced"];
+    const allowedDownloads = hasFeature(normalizedPlan, "hd_downloads") ? ["HD"] : [];
 
-    if (user.plan === "trial") {
-      allowedVideoModels = [];
-      videoCaps = null;
-      allowedStyles = billingConfig.trial.styles;
-      allowedDownloads = billingConfig.trial.downloads;
-    } else {
-      const cfg = billingConfig.plans[user.plan as Exclude<PlanType, "trial">];
-      allowedVideoModels = cfg.videoModels;
-      videoCaps = cfg.videoCaps;
-      allowedStyles = cfg.styles;
-      allowedDownloads = cfg.downloads;
-    }
-
-    // Rate limit remaining (placeholder: full allowance — you can subtract used count if you track per-hour)
-    const rateLimitRemaining = getRateLimitForPlan(user.plan as PlanType);
+    // Rate limit from new system
+    const rateLimitRemaining = getRateLimit(normalizedPlan);
 
     res.json({
-      plan: user.plan,
+      plan: normalizedPlan,
       trialEndsAt,
       dailyCreditsRemaining,
-      creditsBalance: user.creditsBalance ?? 0,
+      creditsBalance: credits,
       includedCreditsThisCycle: user.includedCreditsThisCycle ?? 0,
       rateLimitRemaining,
       allowedVideoModels,
@@ -283,8 +276,8 @@ router.get("/plans", async (req, res) => {
   try {
     res.json({
       success: true,
-      plans: billingConfig.plans,
-      creditPacks: billingConfig.creditPacks
+      plans: PLAN_PRICING,
+      creditPacks: CREDIT_PACKS
     });
   } catch (error) {
     console.error("Failed to fetch plans:", error);

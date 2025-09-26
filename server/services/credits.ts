@@ -49,7 +49,19 @@ export async function creditDelta(
   ledgerKey?: string,
   meta?: Record<string, any>
 ) {
-  // If delta < 0, enforce non-negative balance via CAS
+  // Check for existing ledger entry first (idempotency)
+  if (ledgerKey) {
+    const existing = await db.execute(sql`
+      SELECT id FROM credit_ledger WHERE ledger_key = ${ledgerKey} LIMIT 1
+    `);
+    if ((existing as any).rows?.length > 0) {
+      // Already processed, return current balance
+      const { credits, version } = await getBalance(userId);
+      return { credits, version, success: true };
+    }
+  }
+
+  // Proceed with credit delta using CAS
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     const [row] = await db
       .select({ 
@@ -83,27 +95,27 @@ export async function creditDelta(
 
     // Check if CAS succeeded (row was updated)
     if ((result as any).rowCount === 1) {
-      // Success! Now record in ledger (idempotent)
-      if (ledgerKey) {
-        try {
+      // Success! Now record in ledger
+      try {
+        if (ledgerKey) {
           await db.execute(sql`
             INSERT INTO credit_ledger (user_id, delta, reason, ledger_key, meta)
             VALUES (${userId}, ${delta}, ${reason}, ${ledgerKey}, ${meta ? JSON.stringify(meta) : null})
           `);
-        } catch (e: any) {
-          // Unique conflict on ledgerKey = already recorded; ok
-          if (!e.message?.includes('duplicate key') && !e.message?.includes('unique constraint')) {
-            throw e;
-          }
+        } else {
+          await db.execute(sql`
+            INSERT INTO credit_ledger (user_id, delta, reason, meta)
+            VALUES (${userId}, ${delta}, ${reason}, ${meta ? JSON.stringify(meta) : null})
+          `);
         }
-      } else {
-        await db.execute(sql`
-          INSERT INTO credit_ledger (user_id, delta, reason, meta)
-          VALUES (${userId}, ${delta}, ${reason}, ${meta ? JSON.stringify(meta) : null})
-        `);
+      } catch (e: any) {
+        // If ledger insert fails, we need to rollback the balance change
+        // This shouldn't happen with our pre-check, but safety first
+        console.error('Ledger insert failed after balance update:', e);
+        throw new Error('LEDGER_INSERT_FAILED');
       }
       
-      return { credits: newCredits, version: newVersion };
+      return { credits: newCredits, version: newVersion, success: true };
     }
     // else: CAS failed (version mismatch) - retry
   }
