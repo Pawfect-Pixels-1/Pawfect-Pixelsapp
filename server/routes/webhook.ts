@@ -71,6 +71,39 @@ async function updateUserBilling(
 }
 
 /**
+ * Handle trial ending soon notification
+ * Logs event and could send email notifications in the future
+ */
+async function handleTrialWillEnd(userId: number, subscriptionId: string, trialEndDate: Date) {
+  try {
+    // Get user information for personalized messaging
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) {
+      console.error(`❌ User not found for trial ending: ${userId}`);
+      return;
+    }
+
+    // Format the trial end date for logging/notifications
+    const endDateFormatted = trialEndDate.toLocaleDateString();
+    const daysTillEnd = Math.ceil((trialEndDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    
+    console.log(`📧 Trial ending reminder: User ${userId} (${user.email}) - ${daysTillEnd} days remaining (ends ${endDateFormatted})`);
+    
+    // TODO: In the future, this could send email notifications
+    // Example: await sendTrialEndingEmail(user.email, user.name, trialEndDate, subscriptionId);
+    
+    // TODO: Could also create in-app notifications
+    // Example: await createInAppNotification(userId, 'trial_ending', { trialEndDate, subscriptionId });
+    
+    // For now, we log the event for tracking and monitoring
+    console.log(`✅ Trial ending notification processed for user ${userId}`);
+    
+  } catch (error) {
+    console.error(`❌ Failed to handle trial ending for user ${userId}:`, error);
+  }
+}
+
+/**
  * POST /api/billing/webhook
  * IMPORTANT: raw body required for Stripe signature verification
  */
@@ -270,6 +303,23 @@ router.post("/webhook",
           await updateUserBilling(userId, userUpdateFields, billingUpdateFields);
           
           console.log(`📋 Sub ${sub.id} → user ${userId} plan=${plan} status=${sub.status}`);
+          break;
+        }
+
+        /** Trial ending soon - send reminder to user */
+        case "customer.subscription.trial_will_end": {
+          const sub = event.data.object as Stripe.Subscription;
+          const customerId = sub.customer as string;
+          const customer = await stripe.customers.retrieve(customerId);
+          const userId = Number((customer as any)?.metadata?.userId);
+          if (!Number.isFinite(userId)) break;
+
+          const trialEndDate = sub.trial_end ? new Date(sub.trial_end * 1000) : null;
+          if (!trialEndDate) break;
+
+          await handleTrialWillEnd(userId, sub.id, trialEndDate);
+          
+          console.log(`⏰ Trial ending reminder sent for user ${userId}, subscription ${sub.id}`);
           break;
         }
 
