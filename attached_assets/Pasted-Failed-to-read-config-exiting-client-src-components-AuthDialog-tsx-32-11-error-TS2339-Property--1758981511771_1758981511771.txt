@@ -1,0 +1,152 @@
+Failed to read config, exiting
+client/src/components/AuthDialog.tsx:32:11 - error TS2339: Property 'login' does not exist on type 'AuthState'.
+
+32   const { login, register, isLoading, error, clearError } = useAuth();
+             ~~~~~
+
+client/src/components/AuthDialog.tsx:32:18 - error TS2339: Property 'register' does not exist on type 'AuthState'.
+
+32   const { login, register, isLoading, error, clearError } = useAuth();
+                    ~~~~~~~~
+
+client/src/components/UserDashboard.tsx:198:8 - error TS2739: Type '{}' is missing the following properties from type 'UsageWidgetProps': usage, onUpgrade, onBuyCredits
+
+198       <UsageWidget />
+           ~~~~~~~~~~~
+
+server/dev-endpoints.ts:161:16 - error TS2304: Cannot find name 'sql'.
+
+161       .orderBy(sql`${operations.createdAt} DESC`)
+                   ~~~
+
+server/services/cronJobs.ts:25:7 - error TS2353: Object literal may only specify known properties, and 'scheduled' does not exist in type 'TaskOptions'.
+
+25       scheduled: false,
+         ~~~~~~~~~
+
+server/services/cronJobs.ts:40:7 - error TS2353: Object literal may only specify known properties, and 'scheduled' does not exist in type 'TaskOptions'.
+
+40       scheduled: false,
+         ~~~~~~~~~
+
+server/services/googleSheets.ts:72:9 - error TS2322: Type 'string | null' is not assignable to type 'string'.
+  Type 'null' is not assignable to type 'string'.
+
+72         return this.spreadsheetId;
+           ~~~~~~
+
+server/services/googleSheets.ts:110:5 - error TS2322: Type 'string | null' is not assignable to type 'string'.
+  Type 'null' is not assignable to type 'string'.
+
+110     return this.spreadsheetId;
+        ~~~~~~
+
+server/services/googleSheets.ts:186:9 - error TS2741: Property 'where' is missing in type 'Omit<import("/home/runner/workspace/node_modules/drizzle-orm/pg-core/query-builders/select").PgSelectBase<"users", { id: import("/home/runner/workspace/node_modules/drizzle-orm/pg-core/columns/common").PgColumn<{ name: "id"; tableName: "users"; dataType: "number"; columnType: "PgSerial"; data: number; driverParam: n...' but required in type 'Omit<import("/home/runner/workspace/node_modules/drizzle-orm/pg-core/query-builders/select").PgSelectBase<"users", { id: import("/home/runner/workspace/node_modules/drizzle-orm/pg-core/columns/common").PgColumn<{ name: "id"; tableName: "users"; dataType: "number"; columnType: "PgSerial"; data: number; driverParam: n...'.
+
+186         usersQuery = usersQuery.where(sql`${users.id} > ${syncState.lastExportedUserId}`);
+            ~~~~~~~~~~
+
+  node_modules/drizzle-orm/pg-core/query-builders/select.d.ts:402:5
+    402     where(where: ((aliases: this['_']['selection']) => SQL | undefined) | SQL | undefined): PgSelectWithout<this, TDynamic, 'where'>;
+            ~~~~~
+    'where' is declared here.
+
+server/services/googleSheets.ts:197:32 - error TS2339: Property 'createdAt' does not exist on type 'PgTableWithColumns<{ name: "user_billing"; schema: undefined; columns: { userId: PgColumn<{ name: "user_id"; tableName: "user_billing"; dataType: "number"; columnType: "PgInteger"; data: number; driverParam: string | number; ... 8 more ...; generated: undefined; }, {}, {}>; ... 4 more ...; status: PgColumn<...>; }; ...'.
+
+197         createdAt: userBilling.createdAt,
+                                   ~~~~~~~~~
+
+server/services/googleSheets.ts:198:32 - error TS2339: Property 'updatedAt' does not exist on type 'PgTableWithColumns<{ name: "user_billing"; schema: undefined; columns: { userId: PgColumn<{ name: "user_id"; tableName: "user_billing"; dataType: "number"; columnType: "PgInteger"; data: number; driverParam: string | number; ... 8 more ...; generated: undefined; }, {}, {}>; ... 4 more ...; status: PgColumn<...>; }; ...'.
+
+198         updatedAt: userBilling.updatedAt,
+                                   ~~~~~~~~~
+
+server/services/googleSheets.ts:205:9 - error TS2741: Property 'where' is missing in type 'Omit<import("/home/runner/workspace/node_modules/drizzle-orm/pg-core/query-builders/select").PgSelectBase<"processed_webhook_events", { id: import("/home/runner/workspace/node_modules/drizzle-orm/pg-core/columns/common").PgColumn<{ name: "id"; tableName: "processed_webhook_events"; dataType: "number"; columnType: "P...' but required in type 'Omit<import("/home/runner/workspace/node_modules/drizzle-orm/pg-core/query-builders/select").PgSelectBase<"processed_webhook_events", { id: import("/home/runner/workspace/node_modules/drizzle-orm/pg-core/columns/common").PgColumn<{ name: "id"; tableName: "processed_webhook_events"; dataType: "number"; columnType: "P...'.
+
+205         eventsQuery = eventsQuery.where(sql`${processedWebhookEvents.id} > ${syncState.lastExportedWebhookId}`);
+            ~~~~~~~~~~~
+
+  node_modules/drizzle-orm/pg-core/query-builders/select.d.ts:402:5
+    402     where(where: ((aliases: this['_']['selection']) => SQL | undefined) | SQL | undefined): PgSelectWithout<this, TDynamic, 'where'>;
+            ~~~~~
+    'where' is declared here.
+
+server/services/stripe.ts:6:3 - error TS2322: Type '"2024-06-20"' is not assignable to type '"2025-08-27.basil"'.
+
+6   apiVersion: '2024-06-20',
+    ~~~~~~~~~~
+
+server/storage.ts:43:34 - error TS2552: Cannot find name 'buffer'. Did you mean 'Buffer'?
+
+43     const stream = Readable.from(buffer);
+                                    ~~~~~~
+
+  node_modules/@types/node/buffer.d.ts:1881:13
+    1881         var Buffer: BufferConstructor;
+                     ~~~~~~
+    'Buffer' is declared here.
+
+server/storage.ts:44:5 - error TS1378: Top-level 'await' expressions are only allowed when the 'module' option is set to 'es2022', 'esnext', 'system', 'node16', 'nodenext', or 'preserve', and the 'target' option is set to 'es2017' or higher.
+
+44     await storageClient.uploadFromStream(storageKey, stream, {
+       ~~~~~
+
+server/storage.ts:44:25 - error TS2339: Property 'uploadFromStream' does not exist on type 'never'.
+
+44     await storageClient.uploadFromStream(storageKey, stream, {
+                           ~~~~~~~~~~~~~~~~
+
+server/storage.ts:44:42 - error TS2552: Cannot find name 'storageKey'. Did you mean 'storage'?
+
+44     await storageClient.uploadFromStream(storageKey, stream, {
+                                            ~~~~~~~~~~
+
+server/storage.ts:45:20 - error TS2552: Cannot find name 'mimeType'. Did you mean 'MimeType'?
+
+45       contentType: mimeType,
+                      ~~~~~~~~
+
+  node_modules/typescript/lib/lib.dom.d.ts:15309:13
+    15309 declare var MimeType: {
+                      ~~~~~~~~
+    'MimeType' is declared here.
+
+server/storage.ts:48:5 - error TS2304: Cannot find name 'fileUrl'.
+
+48     fileUrl = `/api/files/${storageKey}`;
+       ~~~~~~~
+
+server/storage.ts:48:29 - error TS2552: Cannot find name 'storageKey'. Did you mean 'storage'?
+
+48     fileUrl = `/api/files/${storageKey}`;
+                               ~~~~~~~~~~
+
+server/storage.ts:49:50 - error TS2304: Cannot find name 'originalName'.
+
+49     console.log(`💾 Saved file to App Storage: ${originalName} (${(buffer.length / 1024 / 1024).toFixed(2)}MB)`);
+                                                    ~~~~~~~~~~~~
+
+server/storage.ts:49:68 - error TS2552: Cannot find name 'buffer'. Did you mean 'Buffer'?
+
+49     console.log(`💾 Saved file to App Storage: ${originalName} (${(buffer.length / 1024 / 1024).toFixed(2)}MB)`);
+                                                                      ~~~~~~
+
+  node_modules/@types/node/buffer.d.ts:1881:13
+    1881         var Buffer: BufferConstructor;
+                     ~~~~~~
+    'Buffer' is declared here.
+
+
+Found 22 errors in 7 files.
+
+Errors  Files
+     2  client/src/components/AuthDialog.tsx:32
+     1  client/src/components/UserDashboard.tsx:198
+     1  server/dev-endpoints.ts:161
+     2  server/services/cronJobs.ts:25
+     6  server/services/googleSheets.ts:72
+     1  server/services/stripe.ts:6
+     9  server/storage.ts:43
+
+bash: db:push: command not found
+error: unknown command 'push'
