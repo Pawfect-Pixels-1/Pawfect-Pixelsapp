@@ -22,7 +22,6 @@ class CronJobService {
         console.error('❌ Nightly Google Sheets export failed:', error);
       }
     }, {
-      scheduled: false,
       timezone: "Australia/Sydney" // AEST/AEDT timezone
     });
 
@@ -37,7 +36,6 @@ class CronJobService {
         console.error('❌ Weekly cleanup failed:', error);
       }
     }, {
-      scheduled: false,
       timezone: "Australia/Sydney"
     });
 

@@ -5,6 +5,7 @@ import { VideoPlayer } from './VideoPlayer';
 import { ShareButton } from './ShareButton';
 import { useSharing } from '../lib/stores/useSharing';
 import { useServerAnalytics } from '../lib/hooks/useServerAnalytics';
+import { useBilling } from '../lib/stores/useBilling';
 import { Play, Image, Film, FileText, ArrowUpDown, Share2, BarChart3 } from 'lucide-react';
 import { UsageWidget } from "./UsageWidget";
 
@@ -68,6 +69,37 @@ export function UserDashboard() {
 
   const { totalShares, getSharesByPlatform, getSharesByContentType } = useSharing();
   const { data: serverAnalytics, isLoading: analyticsLoading } = useServerAnalytics();
+  const { 
+    usage, 
+    plans,
+    createCheckoutSession 
+  } = useBilling();
+
+  // Derive current plan config from usage and available plans
+  const currentPlan = useMemo(() => {
+    if (!usage?.plan || !plans) return null;
+    return plans[usage.plan] || null;
+  }, [usage?.plan, plans]);
+
+  // Create wrapper functions for checkout functionality
+  const handleUpgrade = useCallback(async () => {
+    // Default to 'basic' plan for upgrades, or first available plan
+    const planName = plans?.basic ? 'basic' : Object.keys(plans || {})[0];
+    if (!planName) return;
+    
+    const checkoutUrl = await createCheckoutSession('subscription', planName);
+    if (checkoutUrl) {
+      window.open(checkoutUrl, '_blank');
+    }
+  }, [createCheckoutSession, plans]);
+
+  const handleBuyCredits = useCallback(async () => {
+    // Default to first available credit pack
+    const checkoutUrl = await createCheckoutSession('credits', 'small'); // assuming 'small' is a common pack
+    if (checkoutUrl) {
+      window.open(checkoutUrl, '_blank');
+    }
+  }, [createCheckoutSession]);
 
   const [selectedVideo, setSelectedVideo] = useState<string>('');
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
@@ -195,7 +227,14 @@ export function UserDashboard() {
           <p className="text-gray-600">Manage your transformation history and files</p>
         </div>
       </Card>
-      <UsageWidget />
+      {usage && (
+        <UsageWidget 
+          usage={usage}
+          currentPlan={currentPlan}
+          onUpgrade={handleUpgrade}
+          onBuyCredits={handleBuyCredits}
+        />
+      )}
       {/* Tab Navigation */}
       <div className="flex flex-wrap gap-4 items-center justify-between">
         <div className="flex flex-wrap gap-2">

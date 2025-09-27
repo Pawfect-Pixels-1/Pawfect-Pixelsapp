@@ -6,7 +6,7 @@
 import { Request, Response } from 'express';
 import { db } from './storage';
 import { users, operations } from '../shared/schema';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 // Global test injection flags (dev only)
 export const testInjection = {
