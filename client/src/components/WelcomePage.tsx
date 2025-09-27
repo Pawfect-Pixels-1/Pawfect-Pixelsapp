@@ -31,7 +31,7 @@ function StripePricingTable() {
             console.log('StripePricingTable: Creating pricing table element...');
             containerRef.current.innerHTML = '';
             const pricingTable = document.createElement('stripe-pricing-table');
-            pricingTable.setAttribute('pricing-table-id', 'prctbl_1SBpwQD1OI5Pfwv2G0FBN9pw');
+            pricingTable.setAttribute('pricing-table-id', 'prctbl_1SBq9SD1OI5Pfwv29Uv3LFKh');
             pricingTable.setAttribute('publishable-key', 'pk_test_51S4jZjD1OI5Pfwv2w3DDrXf0JNSjTI65NzWqIBDHO6LoyoEJfyk7JQSl6H2ILCo0489ZEUmkQnRtXISSNLlOOg0x00iO0qz1rQ');
             containerRef.current.appendChild(pricingTable);
             setIsLoaded(true);
