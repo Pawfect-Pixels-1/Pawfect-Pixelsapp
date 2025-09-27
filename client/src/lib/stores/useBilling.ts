@@ -56,6 +56,8 @@ interface BillingState {
   isLoadingPlans: boolean;
   isCreatingCheckout: boolean;
   isOpeningPortal: boolean;
+  showBillingModal: boolean;
+  isProcessing: boolean;
   
   // Actions
   fetchUsage: () => Promise<void>;
@@ -63,8 +65,11 @@ interface BillingState {
   createCheckoutSession: (type: 'subscription' | 'credits', planOrPack: string, options?: {
     trialDays?: number;
     requirePaymentMethod?: boolean;
+    billingCycleAnchorDay?: number;
   }) => Promise<string | null>;
   openCustomerPortal: () => Promise<boolean>;
+  setShowBillingModal: (show: boolean) => void;
+  cancelSubscription: () => Promise<boolean>;
   refreshUsage: () => Promise<void>;
   deductCredits: (amount: number) => void;
   handlePostCheckout: () => Promise<void>;
@@ -79,6 +84,8 @@ export const useBilling = create<BillingState>((set, get) => ({
     isLoadingPlans: false,
     isCreatingCheckout: false,
     isOpeningPortal: false,
+    showBillingModal: false,
+    isProcessing: false,
 
     // Fetch current usage and limits
     fetchUsage: async () => {
@@ -174,7 +181,9 @@ export const useBilling = create<BillingState>((set, get) => ({
           // Check if this is a portal redirect for existing subscribers
           if (data.redirectToPortal) {
             console.log(data.message || 'Redirecting to manage your existing subscription');
-            // Could also show a toast notification here in the future
+            // Open internal billing modal instead of external Stripe portal
+            set({ showBillingModal: true });
+            return null; // Don't redirect to external URL
           }
           
           return data.url;
@@ -195,41 +204,38 @@ export const useBilling = create<BillingState>((set, get) => ({
 
     // Open customer portal for subscription management
     openCustomerPortal: async () => {
-      set({ isOpeningPortal: true });
-      try {
-        const response = await fetch('/api/billing/portal', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ returnUrl: window.location.href }),
-        });
+      // Internal billing management instead of external Stripe portal
+      // This avoids Replit environment restrictions on external billing redirects
+      set({ showBillingModal: true });
+      return true;
+    },
 
+    // New internal billing management methods  
+    setShowBillingModal: (show: boolean) => set({ showBillingModal: show }),
+
+    cancelSubscription: async () => {
+      set({ isProcessing: true });
+      try {
+        const response = await fetch('/api/billing/cancel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        });
+        
         if (response.ok) {
-          const data = await response.json();
-          if (data.url) {
-            window.location.href = data.url;
-            return true;
-          }
-        } else if (response.status === 400) {
-          const errorData = await response.json().catch(() => ({}));
-          console.error('Portal access error:', errorData.error || 'No Stripe customer found');
-          alert('Unable to access billing portal. Please subscribe to a plan first or contact support.');
-          return false;
+          await get().fetchUsage(); // Refresh usage data
+          return true;
         } else {
-          console.error('Failed to create customer portal session');
-          alert('Unable to access billing portal. Please try again or contact support.');
+          const errorData = await response.json().catch(() => ({}));
+          console.error('Cancellation failed:', errorData.error);
           return false;
         }
       } catch (error) {
-        console.error('Error opening customer portal:', error);
-        alert('Unable to access billing portal. Please try again or contact support.');
+        console.error('Error canceling subscription:', error);
         return false;
       } finally {
-        set({ isOpeningPortal: false });
+        set({ isProcessing: false });
       }
-      return false;
     },
 
     // Refresh usage after operations

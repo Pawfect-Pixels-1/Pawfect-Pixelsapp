@@ -14,6 +14,7 @@ import { useBilling } from "./lib/stores/useBilling";
 import { Card } from "./components/ui/card";
 import { TutorialOverlay } from "./components/TutorialOverlay";
 import { OnboardingFlow } from "./components/OnboardingFlow";
+import { BillingManagementModal } from "./components/BillingManagementModal";
 
 const queryClient = new QueryClient();
 
@@ -274,6 +275,9 @@ function AppContent() {
           </div>
         )}
       </div>
+      
+      {/* Global modals */}
+      <BillingManagementModal />
     </div>
   );
 }

@@ -406,4 +406,46 @@ router.get("/plans", async (req, res) => {
   }
 });
 
+/**
+ * POST /api/billing/cancel
+ * Cancel user's active subscription
+ */
+router.post("/cancel", requireAuth, async (req, res) => {
+  try {
+    const user = req.user!;
+    
+    // Get user's billing info
+    const [billingInfo] = await db.select()
+      .from(userBilling)
+      .where(eq(userBilling.userId, user.id));
+    
+    if (!billingInfo?.stripeSubscriptionId) {
+      return res.status(400).json({ error: "No active subscription found" });
+    }
+    
+    // Cancel the subscription at period end (allows user to continue until billing cycle ends)
+    const subscription = await stripe.subscriptions.update(
+      billingInfo.stripeSubscriptionId,
+      {
+        cancel_at_period_end: true,
+      }
+    );
+    
+    // Update billing record
+    await db.update(userBilling)
+      .set({
+        status: subscription.status,
+        currentPeriodEnd: (subscription as any).current_period_end ? new Date((subscription as any).current_period_end * 1000) : null,
+      })
+      .where(eq(userBilling.userId, user.id));
+    
+    console.log(`🗂️ User ${user.id} subscription ${billingInfo.stripeSubscriptionId} marked for cancellation at period end`);
+    
+    res.json({ success: true, message: "Subscription will be canceled at the end of the current billing period" });
+  } catch (error) {
+    console.error("Subscription cancellation failed:", error);
+    res.status(500).json({ error: "Failed to cancel subscription" });
+  }
+});
+
 export const billingRouter = router;
