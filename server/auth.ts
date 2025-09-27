@@ -126,14 +126,22 @@ export const replitAuthHandler = async (req: Request, res: Response) => {
           // Set session
           req.session.userId = user.id;
 
-          res.json({
-            success: true,
-            user: {
-              id: user.id,
-              username: user.username,
-              replitId: user.replitId
-            },
-            message: 'Authenticated with demo user (development mode)'
+          // Explicitly save session to ensure persistence
+          req.session.save((saveErr) => {
+            if (saveErr) {
+              console.error('Session save error:', saveErr);
+              return res.status(500).json({ error: 'Session save error' });
+            }
+
+            res.json({
+              success: true,
+              user: {
+                id: user.id,
+                username: user.username,
+                replitId: user.replitId
+              },
+              message: 'Authenticated with demo user (development mode)'
+            });
           });
         });
         return;
@@ -184,7 +192,11 @@ export const replitAuthHandler = async (req: Request, res: Response) => {
         if (err) reject(err);
         else {
           req.session.userId = user.id;
-          resolve();
+          // Explicitly save session to ensure persistence
+          req.session.save((saveErr) => {
+            if (saveErr) reject(saveErr);
+            else resolve();
+          });
         }
       });
     });

@@ -129,6 +129,8 @@ export const useAuth = create<AuthState>()(
     },
 
     checkAuth: async () => {
+      set({ isLoading: true });
+      
       try {
         const response = await fetch('/api/auth/me', {
           credentials: 'include',
@@ -139,20 +141,24 @@ export const useAuth = create<AuthState>()(
           set({ 
             user: data.user, 
             isAuthenticated: true,
+            isLoading: false,
             error: null 
           });
         } else {
           set({ 
             user: null, 
             isAuthenticated: false,
+            isLoading: false,
             error: null 
           });
         }
       } catch (error) {
         console.error('Auth check error:', error);
+        console.error('Error fetching user data:', error);
         set({ 
           user: null, 
           isAuthenticated: false,
+          isLoading: false,
           error: null 
         });
       }

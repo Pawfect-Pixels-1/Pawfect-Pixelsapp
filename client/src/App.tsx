@@ -21,7 +21,12 @@ const queryClient = new QueryClient();
 
 // Auth wrapper component
 function AuthWrapper({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, checkAuth } = useAuth();
+
+  // Check authentication status on initial load
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   // Show loading state while checking authentication
   if (isLoading) {
