@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { AuthDialog } from "./AuthDialog";
-import { WelcomePricingSection } from "./WelcomePricingSection";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: Floating decorative shapes
@@ -331,7 +330,13 @@ export default function WelcomePage() {
             </div>
 
             {/* Pricing Plans */}
-            <WelcomePricingSection onGetStarted={openRegister} />
+            <div className="mb-16">
+              <div 
+                dangerouslySetInnerHTML={{
+                  __html: `<stripe-pricing-table pricing-table-id="prctbl_1SBpwQD1OI5Pfwv2G0FBN9pw" publishable-key="pk_test_51S4jZjD1OI5Pfwv2w3DDrXf0JNSjTI65NzWqIBDHO6LoyoEJfyk7JQSl6H2ILCo0489ZEUmkQnRtXISSNLlOOg0x00iO0qz1rQ"></stripe-pricing-table>`
+                }}
+              />
+            </div>
 
             {/* Stats */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
