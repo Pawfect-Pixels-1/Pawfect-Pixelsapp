@@ -206,10 +206,11 @@ export const replitAuthHandler = async (req: Request, res: Response) => {
 // Initiate Replit Auth flow
 export const initAuthHandler = async (req: Request, res: Response) => {
   try {
-    // Check if running in Replit environment
+    // Check if running in Replit environment or demo auth is enabled
     const isReplitEnv = process.env.REPLIT_DB_URL || process.env.REPL_ID;
+    const isDemoAuthEnabled = process.env.NODE_ENV === 'development' || process.env.DEMO_AUTH_ENABLED === 'true';
     
-    if (!isReplitEnv) {
+    if (!isReplitEnv && !isDemoAuthEnabled) {
       return res.status(400).json({ 
         error: 'Replit Auth is only available in Replit environment',
         suggestion: 'Please open this app in Replit to use Replit Auth'
@@ -218,11 +219,14 @@ export const initAuthHandler = async (req: Request, res: Response) => {
 
     // In a real Replit Auth implementation, this would redirect to Replit's OAuth endpoint
     // For Replit deployments, users are automatically authenticated via headers
-    // Return success to indicate auth should proceed
+    // For development, allow proceeding to demo auth
     res.json({
       success: true,
-      message: 'Proceed with Replit authentication',
-      replitEnv: true
+      message: isDemoAuthEnabled && !isReplitEnv ? 
+        'Proceed with demo authentication (development mode)' : 
+        'Proceed with Replit authentication',
+      replitEnv: isReplitEnv,
+      demoMode: isDemoAuthEnabled && !isReplitEnv
     });
   } catch (error) {
     console.error('Auth init error:', error);
