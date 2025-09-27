@@ -6,7 +6,7 @@ import cors from "cors";
 import helmet from "helmet";
 import path from "path";
 import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
+import { setupVite } from "./vite";
 import { cronJobService } from "./services/cronJobs";
 
 const app = express();
@@ -189,7 +189,7 @@ app.use((req, res, next) => {
         logLine = logLine.slice(0, 79) + "…";
       }
 
-      log(logLine);
+      console.log(logLine);
     }
   });
 
@@ -224,7 +224,13 @@ app.use((req, res, next) => {
   if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
-    serveStatic(app);
+    // Serve static files in production
+    app.use(express.static(path.join(process.cwd(), 'client/dist')));
+    
+    // Catch-all handler for SPA routing in production
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(process.cwd(), 'client/dist/index.html'));
+    });
   }
 
   // ALWAYS serve the app on port 5000
@@ -235,7 +241,7 @@ app.use((req, res, next) => {
     host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    log(`serving on port ${port}`);
+    console.log(`🌍 [express] serving on port ${port}`);
     
     // Start cron jobs for automated exports
     try {

@@ -4,6 +4,7 @@ hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-24_05"
+packages = ["stripe-cli"]
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -29,6 +30,10 @@ externalPort = 3003
 [[ports]]
 localPort = 39881
 externalPort = 3000
+
+[[ports]]
+localPort = 45989
+externalPort = 4200
 
 [workflows]
 runButton = "Project"

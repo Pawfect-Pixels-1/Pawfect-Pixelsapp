@@ -8,6 +8,12 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { Readable } from 'stream';
 
+// top: add this helper near other helpers
+function escapeLikeLiteral(input: string) {
+  // In PostgreSQL, backslash is the default escape for LIKE
+  return input.replace(/([\\_%])/g, "\\$1");
+}
+
 // Initialize database connection
 const sql = neon(process.env.DATABASE_URL!);
 export const db = drizzle(sql, { schema: { users, transformations, userFiles, shareLinks, shareEvents } });
@@ -33,6 +39,17 @@ function initializeAppStorage() {
     }
   }, 1000); // Delay initialization to not block server startup
 }
+  if (storageClient) {
+    const stream = Readable.from(buffer);
+    await storageClient.uploadFromStream(storageKey, stream, {
+      contentType: mimeType,
+    });
+    // Your file-serving route should map /api/files/:key -> App Storage get
+    fileUrl = `/api/files/${storageKey}`;
+    console.log(`💾 Saved file to App Storage: ${originalName} (${(buffer.length / 1024 / 1024).toFixed(2)}MB)`);
+  } else {
+    // ...
+  }
 
 // Initialize storage with delay
 initializeAppStorage();
