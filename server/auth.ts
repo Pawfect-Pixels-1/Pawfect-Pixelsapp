@@ -68,14 +68,15 @@ export const replitAuthHandler = async (req: Request, res: Response) => {
       });
     }
 
-    // Debug: Log all headers to see what's available
-    console.log('🔍 Available headers:', Object.keys(req.headers));
-    console.log('🔍 Replit headers:', {
-      userId: req.headers['x-replit-user-id'],
-      userName: req.headers['x-replit-user-name'],
-      userUsername: req.headers['x-replit-user-username'], 
-      userEmail: req.headers['x-replit-user-email']
-    });
+    // Debug logging (only in development)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 Available headers:', Object.keys(req.headers));
+      console.log('🔍 Replit headers:', {
+        hasUserId: !!req.headers['x-replit-user-id'],
+        hasUserName: !!(req.headers['x-replit-user-name'] || req.headers['x-replit-user-username']),
+        hasEmail: !!req.headers['x-replit-user-email']
+      });
+    }
 
     // In a real Replit Auth implementation, this would validate a JWT token or signed headers
     // For Replit deployments, check for authenticated user headers (these are injected by Replit)
@@ -85,7 +86,17 @@ export const replitAuthHandler = async (req: Request, res: Response) => {
     
     // Validate Replit identity from environment-injected headers
     if (!replitUser || !replitUsername) {
-      // If headers aren't available, create a demo user for testing
+      // Only allow demo auth in development or when explicitly enabled
+      const isDemoAuthEnabled = process.env.NODE_ENV === 'development' || process.env.DEMO_AUTH_ENABLED === 'true';
+      
+      if (!isDemoAuthEnabled) {
+        return res.status(401).json({ 
+          error: 'Replit authentication required',
+          message: 'Please ensure you are signed in to Replit and try again.'
+        });
+      }
+      
+      // Create a demo user for testing in development
       console.log('⚠️  Replit headers not available, creating demo user for development');
       const demoReplitId = 'demo-user-123';
       const demoUsername = 'demo-user';

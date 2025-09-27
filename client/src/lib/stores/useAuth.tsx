@@ -66,6 +66,11 @@ export const useAuth = create<AuthState>()(
             error: null 
           });
           console.log('🔐 User logged in with Replit Auth:', authData.user.username);
+          
+          // Navigate to dashboard after successful login
+          if (typeof window !== 'undefined') {
+            window.location.href = '/dashboard';
+          }
           return true;
         } else {
           set({ 

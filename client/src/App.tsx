@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import UploadZone from "./components/UploadZone";
 import PreviewGrid from "./components/PreviewGrid";
 import TransformationControls from "./components/TransformationControls";
@@ -18,24 +19,9 @@ import { BillingManagementModal } from "./components/BillingManagementModal";
 
 const queryClient = new QueryClient();
 
-function AppContent() {
+// Auth wrapper component
+function AuthWrapper({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
-  const { handlePostCheckout } = useBilling();
-  const { 
-    uploadedImage, 
-    transformedImage, 
-    generatedVideo, 
-    isProcessing, 
-    currentOperation 
-  } = useTransformation();
-  const [currentView, setCurrentView] = useState<'studio' | 'dashboard' | 'pricing'>('studio');
-
-  // Handle post-checkout redirect on mount
-  React.useEffect(() => {
-    if (user) {
-      handlePostCheckout();
-    }
-  }, [user, handlePostCheckout]);
 
   // Show loading state while checking authentication
   if (isLoading) {
@@ -54,57 +40,74 @@ function AppContent() {
     return <WelcomePage />;
   }
 
-  // Show pricing page
-  if (currentView === 'pricing') {
-    return (
-      <PricingPage onBack={() => setCurrentView('studio')} />
-    );
-  }
+  return <>{children}</>;
+}
 
-  // Show dashboard view for authenticated users
-  if (currentView === 'dashboard') {
-    return (
-      <div className="min-h-screen bg-[#fffdf5]">
-        <div className="max-w-7xl mx-auto">
-          {/* Header with navigation */}
-          <div className="p-4">
-            <UserHeader onShowPricing={() => setCurrentView('pricing')} />
-            <div className="flex justify-center mt-4 space-x-4">
-              <button
-                onClick={() => setCurrentView('studio')}
-                className="bg-white text-black py-2 px-6 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
-              >
-                🎨 Studio
-              </button>
-              <button
-                onClick={() => setCurrentView('dashboard')}
-                className="bg-[#c6c2e6] text-black py-2 px-6 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000]"
-              >
-                📊 Dashboard
-              </button>
-            </div>
+// Dashboard page component
+function DashboardPage() {
+  const navigate = useNavigate();
+  const { handlePostCheckout } = useBilling();
+  const { user } = useAuth();
+
+  // Handle post-checkout redirect on mount
+  useEffect(() => {
+    if (user) {
+      handlePostCheckout();
+    }
+  }, [user, handlePostCheckout]);
+  
+  return (
+    <div className="min-h-screen bg-[#fffdf5]">
+      <div className="max-w-7xl mx-auto">
+        {/* Header with navigation */}
+        <div className="p-4">
+          <UserHeader onShowPricing={() => navigate('/pricing')} />
+          <div className="flex justify-center mt-4 space-x-4">
+            <button
+              onClick={() => navigate('/studio')}
+              className="bg-white text-black py-2 px-6 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
+            >
+              🎨 Studio
+            </button>
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="bg-[#c6c2e6] text-black py-2 px-6 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000]"
+            >
+              📊 Dashboard
+            </button>
           </div>
-          <UserDashboard />
         </div>
+        <UserDashboard />
       </div>
-    );
-  }
+    </div>
+  );
+}
 
-  // Show studio view for authenticated users (main transformation interface)
+// Studio page component
+function StudioPage() {
+  const navigate = useNavigate();
+  const { 
+    uploadedImage, 
+    transformedImage, 
+    generatedVideo, 
+    isProcessing, 
+    currentOperation 
+  } = useTransformation();
+
   return (
     <div className="min-h-screen bg-[#fffdf5] p-4 font-sans">
       <div className="max-w-7xl mx-auto">
         {/* Header with navigation */}
-        <UserHeader onShowPricing={() => setCurrentView('pricing')} />
+        <UserHeader onShowPricing={() => navigate('/pricing')} />
         <div className="flex justify-center mt-4 mb-6 space-x-4">
           <button
-            onClick={() => setCurrentView('studio')}
+            onClick={() => navigate('/studio')}
             className="bg-[#6c8b3a] text-white py-2 px-6 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000]"
           >
             🎨 Studio
           </button>
           <button
-            onClick={() => setCurrentView('dashboard')}
+            onClick={() => navigate('/dashboard')}
             className="bg-white text-black py-2 px-6 rounded-lg font-semibold border-2 border-black shadow-[4px_4px_0px_0px_#000000] hover:shadow-[2px_2px_0px_0px_#000000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
           >
             📊 Dashboard
@@ -279,6 +282,33 @@ function AppContent() {
       {/* Global modals */}
       <BillingManagementModal />
     </div>
+  );
+}
+
+// Pricing page wrapper
+function PricingPageRoute() {
+  const navigate = useNavigate();
+  
+  return <PricingPage onBack={() => navigate('/dashboard')} />;
+}
+
+// Main app with routes
+function AppContent() {
+  return (
+    <Router>
+      <Routes>
+        {/* Public route - shows welcome page for unauthenticated users */}
+        <Route path="/" element={<AuthWrapper><Navigate to="/dashboard" /></AuthWrapper>} />
+        
+        {/* Protected routes - require authentication */}
+        <Route path="/dashboard" element={<AuthWrapper><DashboardPage /></AuthWrapper>} />
+        <Route path="/studio" element={<AuthWrapper><StudioPage /></AuthWrapper>} />
+        <Route path="/pricing" element={<AuthWrapper><PricingPageRoute /></AuthWrapper>} />
+        
+        {/* Catch all - redirect to dashboard */}
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
+    </Router>
   );
 }
 
