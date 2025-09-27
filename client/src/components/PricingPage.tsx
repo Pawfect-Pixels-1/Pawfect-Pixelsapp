@@ -6,17 +6,37 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Info, Sparkles, Calendar } from 'lucide-react';
+import { ArrowLeft, Info, Sparkles, Calendar, ExternalLink } from 'lucide-react';
 import { PricingCard } from './PricingCard';
 import { CreditPackCard } from './CreditPackCard';
 import { UsageWidget } from './UsageWidget';
 import { useBilling } from '@/lib/stores/useBilling';
+import { StripePricingTable } from "@/components/StripePricingTable";
+
+// Prefer env vars (swap to your LIVE values when ready)
+const PUBLISHABLE_KEY =
+  import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY ||
+  "pk_test_51S4jZjD1OI5Pfwv2w3DDrXf0JNSjTI65NzWqIBDHO6LoyoEJfyk7JQSl6H2ILCo0489ZEUmkQnRtXISSNLlOOg0x00iO0qz1rQ";
+
+// Your two Pricing Table IDs (test)
+const SUBSCRIPTIONS_TABLE_ID =
+  import.meta.env.VITE_STRIPE_PRICING_TABLE_SUBSCRIPTION_ID ||
+  "prctbl_1SBq9SD1OI5Pfwv29Uv3LFKh"; // (1) 3 subscription products
+
+const CREDIT_PACKS_TABLE_ID =
+  import.meta.env.VITE_STRIPE_PRICING_TABLE_CREDITPACKS_ID ||
+  "prctbl_1SBpwQD1OI5Pfwv2G0FBN9pw"; // (2) one-time credit packs
+
+const CUSTOMER_PORTAL_URL =
+  import.meta.env.VITE_STRIPE_CUSTOMER_PORTAL_URL ||
+  "https://billing.stripe.com/p/login/test_6oU28qbHn92y3yQ1Iw1RC00";
+
 
 interface PricingPageProps {
   onBack: () => void;
 }
 
-export function PricingPage({ onBack }: PricingPageProps) {
+export default function PricingPage({ onBack }: PricingPageProps) {
   const { 
     usage, 
     plans, 

@@ -89,8 +89,11 @@ export function PricingCard({ plan, currentPlan, isPopular, onSelect, isLoading 
 
       <CardFooter>
         <Button
-          onClick={() => onSelect(plan.name)}
-          disabled={isCurrentPlan || isLoading}
+          onClick={() => {
+            // If you’re using hosted tables as the primary flow, send users to the Pricing page section.
+            window.location.href = "/pricing#subscriptions";
+          }}
+          disabled={isLoading || isCurrentPlan}
           className={`w-full font-semibold border-2 border-black transition-all ${
             isCurrentPlan 
               ? 'bg-gray-200 text-gray-600 cursor-not-allowed' 
@@ -111,6 +114,8 @@ export function PricingCard({ plan, currentPlan, isPopular, onSelect, isLoading 
           ) : (
             'Upgrade Now'
           )}
+
+          
         </Button>
       </CardFooter>
     </Card>
