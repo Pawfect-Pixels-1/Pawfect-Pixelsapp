@@ -4,7 +4,7 @@ import { webcrypto } from "node:crypto";
 import { transformImageHandler, fluxKontextProHandler, generateVideoHandler, gen4AlephHandler, getStatusHandler } from "./services/replicate";
 import { realtimeTransformImageHandler, setRealtimeService } from "./services/realtime-transform.js";
 import { uploadMiddleware } from "./middleware/upload";
-import { registerHandler, loginHandler, logoutHandler, getCurrentUserHandler, requireAuth, optionalAuth } from "./auth";
+import { replitAuthHandler, initAuthHandler, logoutHandler, getCurrentUserHandler, requireAuth, optionalAuth } from "./auth";
 import { storage, fileStorage } from "./storage";
 import { billingRouter } from "./routes/billing";
 import { webhookRouter } from "./routes/webhook";
@@ -21,9 +21,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const realtimeService = new RealtimeService(httpServer, sessionParser);
   setRealtimeService(realtimeService);
   
-  // Authentication routes
-  app.post("/api/auth/register", registerHandler);
-  app.post("/api/auth/login", loginHandler);
+  // Authentication routes - Replit Auth
+  app.post("/api/auth/replit", replitAuthHandler);
+  app.get("/api/auth/init", initAuthHandler);
   app.post("/api/auth/logout", logoutHandler);
   app.get("/api/auth/me", getCurrentUserHandler);
   

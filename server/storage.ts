@@ -52,6 +52,7 @@ export interface StoredFile {
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByReplitId(replitId: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   // Transformation methods
   createTransformation(transformation: InsertTransformation): Promise<Transformation>;
@@ -91,6 +92,11 @@ export class DatabaseStorage implements IStorage {
 
   async getUserByUsername(username: string): Promise<User | undefined> {
     const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+    return result[0];
+  }
+
+  async getUserByReplitId(replitId: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.replitId, replitId)).limit(1);
     return result[0];
   }
 

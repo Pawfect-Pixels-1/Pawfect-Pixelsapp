@@ -4,7 +4,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { LogIn, LogOut, User, History, CreditCard, GraduationCap } from 'lucide-react';
 import { useAuth } from '@/lib/stores/useAuth';
-import { AuthDialog } from './AuthDialog';
+import { ReplitAuthDialog } from './ReplitAuthDialog';
 import { TutorialQuickAccess } from './OnboardingFlow';
 
 interface UserHeaderProps {
@@ -97,7 +97,7 @@ export function UserHeader({ onShowPricing }: UserHeaderProps) {
         </div>
       </div>
 
-      <AuthDialog 
+      <ReplitAuthDialog 
         open={showAuthDialog} 
         onOpenChange={setShowAuthDialog} 
       />

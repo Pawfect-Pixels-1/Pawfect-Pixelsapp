@@ -14,8 +14,7 @@ interface AuthState {
   error: string | null;
   
   // Actions
-  login: (username: string, password: string) => Promise<boolean>;
-  register: (username: string, password: string, email?: string) => Promise<boolean>;
+  loginWithReplit: () => Promise<boolean>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   clearError: () => void;
@@ -28,82 +27,57 @@ export const useAuth = create<AuthState>()(
     isLoading: false,
     error: null,
 
-    login: async (username: string, password: string) => {
+    loginWithReplit: async () => {
       set({ isLoading: true, error: null });
       
       try {
-        const response = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+        // First check if we can initialize Replit Auth
+        const initResponse = await fetch('/api/auth/init', {
+          method: 'GET',
           credentials: 'include',
-          body: JSON.stringify({ username, password }),
         });
         
-        const data = await response.json();
+        const initData = await initResponse.json();
         
-        if (response.ok && data.success) {
+        if (!initResponse.ok) {
           set({ 
-            user: data.user, 
-            isAuthenticated: true, 
-            isLoading: false,
-            error: null 
-          });
-          console.log('🔐 User logged in:', data.user.username);
-          return true;
-        } else {
-          set({ 
-            error: data.error || 'Login failed', 
+            error: initData.error || 'Replit Auth not available', 
             isLoading: false 
           });
           return false;
         }
-      } catch (error) {
-        console.error('Login error:', error);
-        set({ 
-          error: 'Network error during login', 
-          isLoading: false 
-        });
-        return false;
-      }
-    },
 
-    register: async (username: string, password: string, email?: string) => {
-      set({ isLoading: true, error: null });
-      
-      try {
-        const response = await fetch('/api/auth/register', {
+        // If initialization successful, proceed with authentication
+        const authResponse = await fetch('/api/auth/replit', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           credentials: 'include',
-          body: JSON.stringify({ username, password, email }),
         });
         
-        const data = await response.json();
+        const authData = await authResponse.json();
         
-        if (response.ok && data.success) {
+        if (authResponse.ok && authData.success) {
           set({ 
-            user: data.user, 
+            user: authData.user, 
             isAuthenticated: true, 
             isLoading: false,
             error: null 
           });
-          console.log('👤 User registered:', data.user.username);
+          console.log('🔐 User logged in with Replit Auth:', authData.user.username);
           return true;
         } else {
           set({ 
-            error: data.error || 'Registration failed', 
+            error: authData.error || authData.message || 'Replit authentication failed', 
             isLoading: false 
           });
           return false;
         }
       } catch (error) {
-        console.error('Registration error:', error);
+        console.error('Replit Auth error:', error);
         set({ 
-          error: 'Network error during registration', 
+          error: 'Network error during authentication', 
           isLoading: false 
         });
         return false;

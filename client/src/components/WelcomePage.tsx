@@ -5,7 +5,7 @@ import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
-import { AuthDialog } from "./AuthDialog";
+import { ReplitAuthDialog } from "./ReplitAuthDialog";
 import { WelcomePricingSection } from "./WelcomePricingSection";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -362,7 +362,7 @@ export default function WelcomePage() {
       </div>
 
       {/* Auth Dialog */}
-      <AuthDialog 
+      <ReplitAuthDialog 
         open={showAuthDialog}
         onOpenChange={setShowAuthDialog}
       />

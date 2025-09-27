@@ -9,8 +9,9 @@ import { relations, sql } from "drizzle-orm";
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+  password: text("password"),
   email: text("email").unique(),
+  replitId: text("replit_id").unique(), // For Replit Auth integration
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   
@@ -215,12 +216,15 @@ export const insertUserSchema = z.object({
     .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores'),
   password: z.string()
     .min(8, 'Password must be at least 8 characters')
-    .max(128, 'Password must be 128 characters or less'),
+    .max(128, 'Password must be 128 characters or less')
+    .optional()
+    .nullable(),
   email: z.string()
     .email('Invalid email format')
     .optional()
     .nullable()
-    .transform(val => val === '' ? null : val)
+    .transform(val => val === '' ? null : val),
+  replitId: z.string().optional()
 });
 
 export const insertTransformationSchema = createInsertSchema(transformations);
