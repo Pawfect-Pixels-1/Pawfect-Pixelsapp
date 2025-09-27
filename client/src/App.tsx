@@ -5,7 +5,7 @@ import PreviewGrid from "./components/PreviewGrid";
 import TransformationControls from "./components/TransformationControls";
 import { UserHeader } from "./components/UserHeader";
 import { UserDashboard } from "./components/UserDashboard";
-import { PricingPage } from "./components/PricingPage";
+import PricingPage from "./components/PricingPage";
 import { ShareButton } from "./components/ShareButton";
 import WelcomePage from "./components/WelcomePage";
 import { useTransformation } from "./lib/stores/useTransformation";
