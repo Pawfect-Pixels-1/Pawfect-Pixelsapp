@@ -6,89 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { AuthDialog } from "./AuthDialog";
-
-// Stripe Pricing Table Component
-function StripePricingTable() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    console.log('StripePricingTable: Starting to load...');
-    
-    // Check if Stripe script is loaded
-    const checkStripeLoaded = () => {
-      console.log('StripePricingTable: Checking if stripe-pricing-table is available...');
-      console.log('customElements available:', typeof customElements !== 'undefined');
-      
-      if (typeof customElements !== 'undefined') {
-        const hasStripePricingTable = customElements.get('stripe-pricing-table');
-        console.log('stripe-pricing-table custom element:', hasStripePricingTable);
-        
-        if (hasStripePricingTable) {
-          // Stripe pricing table is available, create the element
-          if (containerRef.current) {
-            console.log('StripePricingTable: Creating pricing table element...');
-            containerRef.current.innerHTML = '';
-            const pricingTable = document.createElement('stripe-pricing-table');
-            pricingTable.setAttribute('pricing-table-id', 'prctbl_1SBq9SD1OI5Pfwv29Uv3LFKh');
-            pricingTable.setAttribute('publishable-key', 'pk_test_51S4jZjD1OI5Pfwv2w3DDrXf0JNSjTI65NzWqIBDHO6LoyoEJfyk7JQSl6H2ILCo0489ZEUmkQnRtXISSNLlOOg0x00iO0qz1rQ');
-            containerRef.current.appendChild(pricingTable);
-            setIsLoaded(true);
-            console.log('StripePricingTable: Successfully created pricing table!');
-          }
-          return true;
-        }
-      }
-      return false;
-    };
-
-    // Try immediately
-    if (!checkStripeLoaded()) {
-      console.log('StripePricingTable: Not loaded immediately, waiting...');
-      // If not loaded, wait a bit and retry multiple times
-      let attempts = 0;
-      const maxAttempts = 10;
-      
-      const retryInterval = setInterval(() => {
-        attempts++;
-        console.log(`StripePricingTable: Retry attempt ${attempts}/${maxAttempts}`);
-        
-        if (checkStripeLoaded()) {
-          clearInterval(retryInterval);
-        } else if (attempts >= maxAttempts) {
-          clearInterval(retryInterval);
-          setError('Failed to load Stripe pricing table after multiple attempts');
-          console.error('StripePricingTable: Failed to load after', maxAttempts, 'attempts');
-        }
-      }, 500);
-      
-      return () => clearInterval(retryInterval);
-    }
-  }, []);
-
-  if (error) {
-    return (
-      <div className="text-center p-8 border-2 border-red-300 rounded-lg bg-red-50">
-        <p className="text-red-600 font-semibold">Error loading pricing table</p>
-        <p className="text-red-500 text-sm mt-2">{error}</p>
-        <p className="text-gray-600 text-sm mt-2">Please refresh the page to try again.</p>
-      </div>
-    );
-  }
-
-  if (!isLoaded) {
-    return (
-      <div className="text-center p-8 border-2 border-gray-300 rounded-lg bg-gray-50">
-        <div className="animate-spin w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-        <p className="text-gray-600 font-semibold">Loading pricing plans...</p>
-        <p className="text-gray-500 text-sm mt-2">Connecting to Stripe...</p>
-      </div>
-    );
-  }
-
-  return <div ref={containerRef} className="w-full" />;
-}
+import { WelcomePricingSection } from "./WelcomePricingSection";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: Floating decorative shapes
@@ -413,9 +331,7 @@ export default function WelcomePage() {
             </div>
 
             {/* Pricing Plans */}
-            <div className="mb-16">
-              <StripePricingTable />
-            </div>
+            <WelcomePricingSection onGetStarted={openRegister} />
 
             {/* Stats */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
