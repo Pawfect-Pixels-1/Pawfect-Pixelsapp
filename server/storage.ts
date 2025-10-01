@@ -1,4 +1,4 @@
-// server/services/fileStorage.ts
+// server/storage.ts - File storage and database exports
 import { Client as ReplitStorageClient } from "@replit/object-storage";
 import { Readable } from "stream";
 import path from "path";
@@ -6,6 +6,23 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import crypto from "crypto";
 import type { Request, Response } from "express";
+import { drizzle } from "drizzle-orm/neon-http";
+import { neon } from "@neondatabase/serverless";
+import { users, transformations, userFiles, shareLinks, shareEvents } from "@shared/schema";
+
+// Initialize database connection
+const sql = neon(process.env.DATABASE_URL!);
+export const db = drizzle(sql, { schema: { users, transformations, userFiles, shareLinks, shareEvents } });
+
+// Import additional schema types needed for storage operations
+import { eq } from "drizzle-orm";
+import type { 
+  User, InsertUser, 
+  Transformation, InsertTransformation,
+  UserFile, InsertUserFile,
+  ShareLink, InsertShareLink,
+  ShareEvent, InsertShareEvent
+} from "@shared/schema";
 
 // ===== Types you already use =====
 export interface StoredFile {
@@ -218,3 +235,121 @@ function encodeRFC5987ValueChars(str: string) {
     .replace(/\*/g, "%2A")
     .replace(/%(7C|60|5E)/g, "%25$1");
 }
+
+// ===== Database Storage Operations =====
+
+export interface IStorage {
+  getUser(id: number): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByReplitId(replitId: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  createTransformation(transformation: InsertTransformation): Promise<Transformation>;
+  getUserTransformations(userId: number): Promise<Transformation[]>;
+  updateTransformationStatus(id: number, status: string, result?: any): Promise<void>;
+  createShareLink(shareLink: InsertShareLink): Promise<ShareLink>;
+  getShareLink(id: string): Promise<ShareLink | undefined>;
+  recordShareEvent(event: InsertShareEvent): Promise<ShareEvent>;
+}
+
+export class DatabaseStorage implements IStorage {
+  async getUser(id: number): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+    return result[0];
+  }
+
+  async getUserByReplitId(replitId: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.replitId, replitId)).limit(1);
+    return result[0];
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const result = await db.insert(users).values(insertUser).returning();
+    return result[0];
+  }
+
+  async createTransformation(transformation: InsertTransformation): Promise<Transformation> {
+    const result = await db.insert(transformations).values(transformation).returning();
+    return result[0];
+  }
+
+  async getUserTransformations(userId: number): Promise<Transformation[]> {
+    return db.select().from(transformations).where(eq(transformations.userId, userId));
+  }
+
+  async updateTransformationStatus(id: number, status: string, result?: any): Promise<void> {
+    await db.update(transformations)
+      .set({ status, result: result ? JSON.stringify(result) : null })
+      .where(eq(transformations.id, id));
+  }
+
+  async createShareLink(shareLink: InsertShareLink): Promise<ShareLink> {
+    const result = await db.insert(shareLinks).values(shareLink).returning();
+    return result[0];
+  }
+
+  async getShareLink(id: string): Promise<ShareLink | undefined> {
+    const result = await db.select().from(shareLinks).where(eq(shareLinks.id, id)).limit(1);
+    return result[0];
+  }
+
+  async recordShareEvent(event: InsertShareEvent): Promise<ShareEvent> {
+    const result = await db.insert(shareEvents).values(event).returning();
+    return result[0];
+  }
+
+  async getShareAnalytics(userId: number): Promise<{
+    totalShares: number;
+    sharesByPlatform: Record<string, number>;
+    sharesByContentType: Record<string, number>;
+  }> {
+    const events = await db.select().from(shareEvents)
+      .where(eq(shareEvents.userId, userId));
+    
+    const sharesByPlatform: Record<string, number> = {};
+    const sharesByContentType: Record<string, number> = {};
+    
+    for (const event of events) {
+      if (event.platform) {
+        sharesByPlatform[event.platform] = (sharesByPlatform[event.platform] || 0) + 1;
+      }
+      if (event.contentType) {
+        sharesByContentType[event.contentType] = (sharesByContentType[event.contentType] || 0) + 1;
+      }
+    }
+    
+    return {
+      totalShares: events.length,
+      sharesByPlatform,
+      sharesByContentType
+    };
+  }
+}
+
+export interface IFileStorage {
+  getUserFiles(userId: number): Promise<StoredFile[]>;
+}
+
+export class FileStorageService implements IFileStorage {
+  async getUserFiles(userId: number): Promise<StoredFile[]> {
+    const files = await db.select().from(userFiles).where(eq(userFiles.userId, userId));
+    return files.map(f => ({
+      id: f.id.toString(),
+      filename: f.fileName,
+      originalName: f.originalFileName,
+      mimeType: f.fileType,
+      size: f.fileSize || 0,
+      url: f.fileUrl,
+      uploadedAt: f.createdAt,
+      userId: f.userId
+    }));
+  }
+}
+
+// Export singleton instances for use across the app
+export const storage = new DatabaseStorage();
+export const fileStorage = new FileStorageService();
