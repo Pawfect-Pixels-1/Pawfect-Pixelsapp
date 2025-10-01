@@ -147,15 +147,12 @@ function useCountingNumber(to: number, durationMs = 800) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function WelcomePage() {
   const [showAuthDialog, setShowAuthDialog] = useState(false);
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [showStickyCta, setShowStickyCta] = useState(false);
 
   const openLogin = () => {
-    setAuthMode("login");
     setShowAuthDialog(true);
   };
   const openRegister = () => {
-    setAuthMode("register");
     setShowAuthDialog(true);
   };
 
