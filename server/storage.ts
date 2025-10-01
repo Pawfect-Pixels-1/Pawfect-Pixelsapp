@@ -1,429 +1,220 @@
-import { users, transformations, userFiles, shareLinks, shareEvents, type User, type InsertUser, type Transformation, type UserFile, type InsertTransformation, type InsertUserFile, type ShareLink, type InsertShareLink, type ShareEvent, type InsertShareEvent } from "@shared/schema";
-import { drizzle } from "drizzle-orm/neon-http";
-import { neon } from "@neondatabase/serverless";
-import { eq, like } from "drizzle-orm";
-import { Client } from "@replit/object-storage";
-import fs from 'fs/promises';
-import path from 'path';
-import { createHash } from 'crypto';
-import { Readable } from 'stream';
+// server/services/fileStorage.ts
+import { Client as ReplitStorageClient } from "@replit/object-storage";
+import { Readable } from "stream";
+import path from "path";
+import fs from "fs/promises";
+import fsSync from "fs";
+import crypto from "crypto";
+import type { Request, Response } from "express";
 
-// Initialize database connection
-const sql = neon(process.env.DATABASE_URL!);
-export const db = drizzle(sql, { schema: { users, transformations, userFiles, shareLinks, shareEvents } });
-
-// App Storage client - enable Replit Object Storage
-let storageClient: Client | null = null;
-
-// Initialize App Storage if available (deferred to avoid blocking startup)
-function initializeAppStorage() {
-  // Run asynchronously to avoid blocking server startup
-  setTimeout(async () => {
-    try {
-      // Only try to initialize if we detect proper Replit app storage environment
-      if (process.env.REPLIT_DEPLOYMENT_ID && process.env.REPL_SLUG) {
-        storageClient = new Client();
-        console.log('☁️ App Storage enabled (Replit Object Storage)');
-      } else {
-        console.log('📁 Using local file storage (App Storage not configured)');
-      }
-    } catch (error: any) {
-      console.log('📁 Using local file storage (App Storage unavailable):', error?.message || 'Unknown error');
-      storageClient = null;
-    }
-  }, 1000); // Delay initialization to not block server startup
-}
-  if (storageClient) {
-    const stream = Readable.from(buffer);
-    await storageClient.uploadFromStream(storageKey, stream, {
-      contentType: mimeType,
-    });
-    // Your file-serving route should map /api/files/:key -> App Storage get
-    fileUrl = `/api/files/${storageKey}`;
-    console.log(`💾 Saved file to App Storage: ${originalName} (${(buffer.length / 1024 / 1024).toFixed(2)}MB)`);
-  } else {
-    // ...
-  }
-
-// Initialize storage with delay
-initializeAppStorage();
-
-// File storage interface
+// ===== Types you already use =====
 export interface StoredFile {
-  id: string;
-  filename: string;
+  id: string;               // use the storage key as id
+  filename: string;         // basename (for display)
   originalName: string;
   mimeType: string;
   size: number;
-  url: string;
+  url: string;              // server route that serves this file
   uploadedAt: Date;
+  userId: number;
 }
 
-// User storage interface
-export interface IStorage {
-  getUser(id: number): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  getUserByReplitId(replitId: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
-  // Transformation methods
-  createTransformation(transformation: InsertTransformation): Promise<Transformation>;
-  getUserTransformations(userId: number): Promise<Transformation[]>;
-  updateTransformationStatus(id: number, status: string, result?: any): Promise<void>;
-  // File methods
-  createUserFile(file: InsertUserFile): Promise<UserFile>;
-  getUserFiles(userId: number): Promise<UserFile[]>;
-  deleteUserFile(id: number): Promise<boolean>;
-  // Share link methods
-  createShareLink(shareLink: InsertShareLink): Promise<ShareLink>;
-  getShareLink(id: string): Promise<ShareLink | undefined>;
-  // Share analytics methods
-  recordShareEvent(event: InsertShareEvent): Promise<ShareEvent>;
-  getShareAnalytics(userId: number): Promise<{
-    totalShares: number;
-    sharesByPlatform: Record<string, number>;
-    sharesByContentType: Record<string, number>;
-  }>;
+type SaveOpts = {
+  userId: number;
+  buffer: Buffer;
+  originalName: string;
+  mimeType?: string;        // optional; we’ll default if missing
+  kind?: "upload" | "result" | "thumb"; // for nicer key prefixes
+};
+
+// ===== Internal state =====
+let storageClient: ReplitStorageClient | null = null;
+let storageReady = false;
+
+/** Detect if we’re running in a Replit Deployment with App Storage available */
+function shouldUseAppStorage(): boolean {
+  return Boolean(process.env.REPLIT_DEPLOYMENT_ID && process.env.REPL_SLUG);
 }
 
-// File storage interface for App Storage
-export interface IFileStorage {
-  saveFile(buffer: Buffer, originalName: string, mimeType: string, userId?: number): Promise<StoredFile>;
-  saveFileFromUrl(url: string, originalName: string, mimeType: string, userId?: number): Promise<StoredFile>;
-  getFile(id: string): Promise<StoredFile | undefined>;
-  deleteFile(id: string): Promise<boolean>;
-  getFileUrl(id: string): Promise<string>;
-  getUserFiles(userId: number): Promise<StoredFile[]>;
-}
-
-export class DatabaseStorage implements IStorage {
-  async getUser(id: number): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
-    return result[0];
-  }
-
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
-    return result[0];
-  }
-
-  async getUserByReplitId(replitId: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.replitId, replitId)).limit(1);
-    return result[0];
-  }
-
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const result = await db.insert(users).values(insertUser).returning();
-    return result[0];
-  }
-
-  async createTransformation(transformation: InsertTransformation): Promise<Transformation> {
-    const result = await db.insert(transformations).values(transformation).returning();
-    return result[0];
-  }
-
-  async getUserTransformations(userId: number): Promise<Transformation[]> {
-    return await db.select().from(transformations).where(eq(transformations.userId, userId));
-  }
-
-  async updateTransformationStatus(id: number, status: string, result?: any): Promise<void> {
-    const updateData: any = { status };
-    if (status === 'completed') {
-      updateData.completedAt = new Date();
-      updateData.resultFileUrls = result;
-    } else if (status === 'failed' && result) {
-      updateData.errorMessage = result;
+/** Initialize once, non-blocking */
+export async function initFileStorage(): Promise<void> {
+  if (storageReady) return;
+  try {
+    if (shouldUseAppStorage()) {
+      storageClient = new ReplitStorageClient();
+      console.log("☁️  App Storage enabled (Replit Object Storage)");
+    } else {
+      console.log("📁 Using local file storage (App Storage not configured)");
     }
-    
-    await db.update(transformations).set(updateData).where(eq(transformations.id, id));
-  }
-
-  async createUserFile(file: InsertUserFile): Promise<UserFile> {
-    const result = await db.insert(userFiles).values(file).returning();
-    return result[0];
-  }
-
-  async getUserFiles(userId: number): Promise<UserFile[]> {
-    return await db.select().from(userFiles).where(eq(userFiles.userId, userId));
-  }
-
-  async deleteUserFile(id: number): Promise<boolean> {
-    try {
-      await db.delete(userFiles).where(eq(userFiles.id, id));
-      return true;
-    } catch (error) {
-      console.error(`❌ Failed to delete user file from database: ${error}`);
-      throw new Error(`Failed to delete user file: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  // Share link methods
-  async createShareLink(shareLink: InsertShareLink): Promise<ShareLink> {
-    const result = await db.insert(shareLinks).values(shareLink).returning();
-    return result[0];
-  }
-
-  async getShareLink(id: string): Promise<ShareLink | undefined> {
-    const result = await db.select().from(shareLinks).where(eq(shareLinks.id, id)).limit(1);
-    return result[0];
-  }
-
-  // Share analytics methods
-  async recordShareEvent(event: InsertShareEvent): Promise<ShareEvent> {
-    const result = await db.insert(shareEvents).values(event).returning();
-    return result[0];
-  }
-
-  async getShareAnalytics(userId: number): Promise<{
-    totalShares: number;
-    sharesByPlatform: Record<string, number>;
-    sharesByContentType: Record<string, number>;
-  }> {
-    const events = await db.select().from(shareEvents).where(eq(shareEvents.userId, userId));
-    
-    const sharesByPlatform: Record<string, number> = {};
-    const sharesByContentType: Record<string, number> = {};
-    
-    for (const event of events) {
-      sharesByPlatform[event.platform] = (sharesByPlatform[event.platform] || 0) + 1;
-      sharesByContentType[event.contentType] = (sharesByContentType[event.contentType] || 0) + 1;
-    }
-    
-    return {
-      totalShares: events.length,
-      sharesByPlatform,
-      sharesByContentType,
-    };
+  } catch (err: any) {
+    console.log("📁 Using local file storage (App Storage unavailable):", err?.message || err);
+    storageClient = null;
+  } finally {
+    storageReady = true;
   }
 }
 
-// Hybrid file storage - use App Storage when available, fallback to local
-export class HybridFileStorage implements IFileStorage {
-  private storagePrefix: string = 'portrait-studio';
+/** Create a stable-ish key: users/{id}/{kind}/{yyyymm}/{hash}{ext} */
+function makeKey(userId: number, originalName: string, kind: NonNullable<SaveOpts["kind"]> = "upload") {
+  const ext = path.extname(originalName) || "";
+  const yyyymm = new Date().toISOString().slice(0, 7).replace("-", "");
+  const hash = crypto
+    .createHash("sha256")
+    .update(`${userId}:${Date.now()}:${originalName}:${crypto.randomUUID()}`)
+    .digest("hex")
+    .slice(0, 16);
 
-  async saveFile(buffer: Buffer, originalName: string, mimeType: string, userId?: number): Promise<StoredFile> {
-    // Generate unique file ID
-    const hash = createHash('md5').update(buffer).digest('hex');
-    const timestamp = Date.now();
-    const id = `${timestamp}_${hash.substring(0, 8)}`;
-    
-    // Determine file extension
-    const extension = path.extname(originalName) || this.getExtensionFromMimeType(mimeType);
-    const filename = `${id}${extension}`;
-    const storageKey = `${this.storagePrefix}/${userId || 'anonymous'}/${filename}`;
-    
-    let fileUrl: string;
-    let storedFile: StoredFile;
+  return `users/${userId}/${kind}/${yyyymm}/${hash}${ext}`;
+}
 
-    try {
-      // Try to upload to App Storage first
-      if (storageClient) {
-        const stream = Readable.from(buffer);
-        await storageClient.uploadFromStream(storageKey, stream);
-        fileUrl = `/api/files/${storageKey}`;
-        console.log(`💾 Saved file to App Storage: ${originalName} (${(buffer.length / 1024 / 1024).toFixed(2)}MB)`);
-      } else {
-        throw new Error('App Storage not configured');
+/** Local uploads/ dir for dev */
+const LOCAL_DIR = path.join(process.cwd(), "uploads");
+
+/** Save a buffer and return metadata; does NOT write to DB (keep DB concerns outside) */
+export async function saveFile({ userId, buffer, originalName, mimeType, kind = "upload" }: SaveOpts): Promise<StoredFile> {
+  await initFileStorage();
+
+  const key = makeKey(userId, originalName, kind);
+  let url = `/api/files/${encodeURIComponent(key)}`;
+  const detectedMime = mimeType || guessMime(originalName) || "application/octet-stream";
+
+  if (storageClient) {
+    const stream = Readable.from(buffer);
+    await storageClient.uploadFromStream(key, stream, { compress: true });
+    console.log(`💾 App Storage: ${originalName} -> ${key} (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
+  } else {
+    await fs.mkdir(LOCAL_DIR, { recursive: true });
+    const localPath = path.join(LOCAL_DIR, path.basename(key));
+    await fs.writeFile(localPath, buffer);
+    url = `/uploads/${encodeURIComponent(path.basename(key))}`; // direct static mount in dev
+    console.log(`📁 Local FS: ${originalName} -> ${localPath}`);
+  }
+
+  const meta: StoredFile = {
+    id: key,
+    filename: path.basename(key),
+    originalName,
+    mimeType: detectedMime,
+    size: buffer.length,
+    url,
+    uploadedAt: new Date(),
+    userId,
+  };
+
+  return meta;
+}
+
+/** Stream a file by key to the response. You can plug this directly into an Express route. */
+export async function streamFileByKey(key: string, res: Response, opts?: { cache?: boolean; downloadName?: string }) {
+  await initFileStorage();
+
+  // Basic caching headers (tweak as you wish)
+  if (opts?.cache !== false) {
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  } else {
+    res.setHeader("Cache-Control", "no-store");
+  }
+  if (opts?.downloadName) {
+    res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeRFC5987ValueChars(opts.downloadName)}`);
+  }
+
+  try {
+    if (storageClient) {
+      // Minimalistic stream pipe; some SDKs return a { body, contentType, size } object
+      const obj = await (storageClient as any).get?.(key);
+      if (obj?.contentType) res.setHeader("Content-Type", obj.contentType);
+      if (obj?.size) res.setHeader("Content-Length", String(obj.size));
+
+      // If SDK returns a stream directly:
+      if (obj?.body && typeof obj.body.pipe === "function") {
+        obj.body.pipe(res);
+        return;
       }
-    } catch (error) {
-      // Fallback to local storage
-      const localPath = path.join(process.cwd(), 'uploads', filename);
-      await fs.mkdir(path.dirname(localPath), { recursive: true });
-      await fs.writeFile(localPath, buffer);
-      fileUrl = `/uploads/${filename}`;
-      console.log(`📁 Saved file locally: ${originalName} (${(buffer.length / 1024 / 1024).toFixed(2)}MB)`);
-    }
 
-    storedFile = {
-      id,
-      filename,
-      originalName,
-      mimeType,
-      size: buffer.length,
-      url: fileUrl,
-      uploadedAt: new Date()
-    };
-    
-    // If userId provided, save file metadata to database
-    if (userId) {
-      try {
-        await db.insert(userFiles).values({
-          userId,
-          fileName: filename,
-          originalFileName: originalName,
-          fileUrl,
-          fileType: mimeType,
-          fileSize: buffer.length,
+      // Fallback to downloadToStream if available:
+      if ((storageClient as any).downloadToStream) {
+        const dlStream = await (storageClient as any).downloadToStream(key);
+        dlStream.pipe(res);
+        return;
+      }
+
+      // Last resort: read into memory (not ideal for big files)
+      const buf = await (storageClient as any).download?.(key);
+      if (Buffer.isBuffer(buf)) {
+        res.end(buf);
+        return;
+      }
+
+      throw new Error("Unsupported object-storage streaming method; check SDK methods");
+    } else {
+      const localPath = path.join(LOCAL_DIR, path.basename(key));
+      if (!fsSync.existsSync(localPath)) {
+        res.status(404).json({ error: "File not found" });
+        return;
+      }
+
+      // Try to set a basic content-type from extension
+      res.setHeader("Content-Type", guessMime(localPath) || "application/octet-stream");
+
+      // (Optional) Range support for videos; simple implementation
+      const stat = fsSync.statSync(localPath);
+      const range = (res.req.headers.range as string | undefined);
+      if (range) {
+        const [startStr, endStr] = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(startStr, 10);
+        const end = endStr ? parseInt(endStr, 10) : stat.size - 1;
+        const chunkSize = end - start + 1;
+
+        res.writeHead(206, {
+          "Content-Range": `bytes ${start}-${end}/${stat.size}`,
+          "Accept-Ranges": "bytes",
+          "Content-Length": chunkSize,
+          "Content-Type": res.getHeader("Content-Type") || "application/octet-stream",
         });
-      } catch (error) {
-        console.error(`❌ Failed to save file metadata to database: ${error}`);
-        throw new Error(`Failed to save file metadata: ${error instanceof Error ? error.message : 'Unknown error'}`);
+
+        fsSync.createReadStream(localPath, { start, end }).pipe(res);
+      } else {
+        res.setHeader("Content-Length", String(stat.size));
+        fsSync.createReadStream(localPath).pipe(res);
       }
     }
-    
-    return storedFile;
-  }
-
-  async saveFileFromUrl(url: string, originalName: string, mimeType: string, userId?: number): Promise<StoredFile> {
-    try {
-      // Fetch the file from URL
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch file: ${response.statusText}`);
-      }
-      
-      const buffer = Buffer.from(await response.arrayBuffer());
-      return await this.saveFile(buffer, originalName, mimeType, userId);
-    } catch (error) {
-      console.error(`❌ Failed to save file from URL: ${error}`);
-      throw new Error(`Failed to save file from URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  async getFile(id: string): Promise<StoredFile | undefined> {
-    try {
-      // Validate and sanitize ID to prevent wildcard abuse
-      const sanitizedId = this.validateAndSanitizeId(id);
-      
-      // First try exact filename match
-      let result = await db.select().from(userFiles)
-        .where(eq(userFiles.fileName, sanitizedId))
-        .limit(1);
-      
-      // If not found, try prefix match (id without extension)
-      if (!result[0] && this.isValidIdPattern(sanitizedId)) {
-        const results = await db.select().from(userFiles)
-          .where(like(userFiles.fileName, `${sanitizedId}.%`))
-          .limit(1);
-        result = results;
-      }
-      
-      if (result[0]) {
-        return {
-          id: this.extractIdFromFilename(result[0].fileName),
-          filename: result[0].fileName,
-          originalName: result[0].originalFileName,
-          mimeType: result[0].fileType,
-          size: result[0].fileSize || 0,
-          url: result[0].fileUrl,
-          uploadedAt: result[0].createdAt
-        };
-      }
-    } catch (error) {
-      console.error(`❌ Error getting file metadata: ${error}`);
-      throw new Error(`Failed to get file metadata: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-    return undefined;
-  }
-
-  async deleteFile(id: string): Promise<boolean> {
-    try {
-      // Validate and sanitize ID to prevent wildcard abuse
-      const sanitizedId = this.validateAndSanitizeId(id);
-      
-      // First try exact filename match
-      let result = await db.select().from(userFiles)
-        .where(eq(userFiles.fileName, sanitizedId))
-        .limit(1);
-      
-      // If not found, try prefix match (id without extension)
-      if (!result[0] && this.isValidIdPattern(sanitizedId)) {
-        const results = await db.select().from(userFiles)
-          .where(like(userFiles.fileName, `${sanitizedId}.%`))
-          .limit(1);
-        result = results;
-      }
-      
-      if (!result[0]) {
-        console.warn(`⚠️ File not found in database: ${id}`);
-        return false;
-      }
-      
-      // Delete from storage if using App Storage
-      const storageKey = this.extractStorageKeyFromUrl(result[0].fileUrl);
-      if (storageKey && storageClient) {
-        try {
-          await storageClient.delete(storageKey);
-        } catch (storageError) {
-          console.warn(`⚠️ Failed to delete from App Storage: ${storageError}`);
-          // Continue with database deletion even if storage deletion fails
-        }
-      }
-      
-      // Remove from database using the actual filename found
-      await db.delete(userFiles).where(eq(userFiles.fileName, result[0].fileName));
-      
-      console.log(`🗑️ Deleted file: ${result[0].fileName}`);
-      return true;
-    } catch (error) {
-      console.error(`❌ Failed to delete file: ${error}`);
-      throw new Error(`Failed to delete file: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  async getFileUrl(id: string): Promise<string> {
-    const file = await this.getFile(id);
-    return file ? file.url : '';
-  }
-
-  async getUserFiles(userId: number): Promise<StoredFile[]> {
-    try {
-      const files = await db.select().from(userFiles).where(eq(userFiles.userId, userId));
-      return files.map(file => ({
-        id: this.extractIdFromFilename(file.fileName),
-        filename: file.fileName,
-        originalName: file.originalFileName,
-        mimeType: file.fileType,
-        size: file.fileSize || 0,
-        url: file.fileUrl,
-        uploadedAt: file.createdAt
-      }));
-    } catch (error) {
-      console.error(`❌ Error getting user files: ${error}`);
-      throw new Error(`Failed to get user files: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  private extractStorageKeyFromUrl(url: string): string | null {
-    // Extract storage key from App Storage URL - implementation depends on URL format
-    const match = url.match(/\/([^/]+\/[^/]+\/[^/]+)$/);
-    return match ? match[1] : null;
-  }
-
-  private extractIdFromFilename(filename: string): string {
-    // Extract the id part (timestamp_hash) from filename before extension
-    const lastDotIndex = filename.lastIndexOf('.');
-    return lastDotIndex > 0 ? filename.substring(0, lastDotIndex) : filename;
-  }
-
-  private validateAndSanitizeId(id: string): string {
-    // Remove any potential SQL wildcard characters for safety
-    return id.replace(/[%_]/g, '');
-  }
-
-  private isValidIdPattern(id: string): boolean {
-    // Validate ID matches expected pattern: timestamp_hash (digits_hex)
-    return /^\d{10,20}_[a-f0-9]{6,16}$/.test(id);
-  }
-
-  private getExtensionFromMimeType(mimeType: string): string {
-    const mimeToExt: Record<string, string> = {
-      'image/jpeg': '.jpg',
-      'image/jpg': '.jpg', 
-      'image/png': '.png',
-      'image/webp': '.webp',
-      'image/gif': '.gif',
-      'image/bmp': '.bmp',
-      'image/tiff': '.tiff',
-      'image/svg+xml': '.svg',
-      'video/mp4': '.mp4',
-      'video/webm': '.webm',
-      'video/avi': '.avi',
-      'video/mov': '.mov',
-      'video/quicktime': '.mov'
-    };
-    return mimeToExt[mimeType] || '.bin';
+  } catch (err) {
+    console.error("streamFileByKey error:", err);
+    if (!res.headersSent) res.status(404).json({ error: "File not found" });
   }
 }
 
-export const storage = new DatabaseStorage();
-export const fileStorage = new HybridFileStorage();
+/** Delete by key (does not remove DB row; do that in your service layer) */
+export async function deleteFileByKey(key: string): Promise<void> {
+  await initFileStorage();
+  if (storageClient) {
+    await (storageClient as any).delete?.(key);
+  } else {
+    const localPath = path.join(LOCAL_DIR, path.basename(key));
+    await fs.rm(localPath, { force: true });
+  }
+}
+
+// ===== Helpers =====
+function guessMime(name: string): string | undefined {
+  const ext = path.extname(name).toLowerCase();
+  // keep it tiny; expand if you like
+  const MAP: Record<string, string> = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".mkv": "video/x-matroska",
+  };
+  return MAP[ext];
+}
+
+function encodeRFC5987ValueChars(str: string) {
+  return encodeURIComponent(str)
+    .replace(/['()]/g, escape)
+    .replace(/\*/g, "%2A")
+    .replace(/%(7C|60|5E)/g, "%25$1");
+}
