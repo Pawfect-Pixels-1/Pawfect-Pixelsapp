@@ -8,12 +8,6 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { Readable } from 'stream';
 
-// top: add this helper near other helpers
-function escapeLikeLiteral(input: string) {
-  // In PostgreSQL, backslash is the default escape for LIKE
-  return input.replace(/([\\_%])/g, "\\$1");
-}
-
 // Initialize database connection
 const sql = neon(process.env.DATABASE_URL!);
 export const db = drizzle(sql, { schema: { users, transformations, userFiles, shareLinks, shareEvents } });
