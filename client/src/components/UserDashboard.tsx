@@ -178,7 +178,7 @@ export function UserDashboard() {
     if (!user) return;
     const ctrl = new AbortController();
     fetchUserData(ctrl.signal);
-    return () => ctrl.abort();
+    return () => ctrl.abort(new DOMException('Component cleanup', 'AbortError'));
   }, [user, fetchUserData]);
 
   // Filter + sort transformations
