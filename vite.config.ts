@@ -16,6 +16,10 @@ const replHost =
     : undefined
 
 export default defineConfig({
+  root: './client',  // Add this line
+  plugins: [react()],
+
+export default defineConfig({
   plugins: [react()],
   server: {
     host: true,
