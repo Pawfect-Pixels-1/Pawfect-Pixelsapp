@@ -16,8 +16,8 @@ const replHost =
     : undefined
 
 export default defineConfig({
-  plugins: [react()],
   root: './client',
+  plugins: [react()],
   server: {
     host: true,
     port: 5173,
