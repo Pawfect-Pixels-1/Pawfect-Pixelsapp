@@ -18,9 +18,11 @@ const replHost =
 export default defineConfig({
   root: './client',
   plugins: [react()],
-  build: {
-    outDir: '../dist',
-  }
+  resolve: {
+    alias: {
+      '@': '/src',
+    },
+  },
   server: {
     host: true,
     port: 5173,
