@@ -177,8 +177,12 @@ export function UserDashboard() {
   useEffect(() => {
     if (!user) return;
     const ctrl = new AbortController();
-    fetchUserData(ctrl.signal);
-    return () => ctrl.abort(new DOMException('Component cleanup', 'AbortError'));
+    fetchUserData(ctrl.signal).catch(e => {
+      if (e?.name !== 'AbortError') {
+        console.error('Unexpected error in fetchUserData:', e);
+      }
+    });
+    return () => ctrl.abort();
   }, [user, fetchUserData]);
 
   // Filter + sort transformations
